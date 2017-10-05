@@ -1,0 +1,38 @@
+ADDRESS           522
+FRACTION         1196
+TIME             1465
+TELEPHONE        4024
+ELECTRONIC       5162
+DIGIT            5442
+MONEY            6128
+DECIMAL          9821
+ORDINAL         12703
+MEASURE         14783
+VERBATIM        78108
+CARDINAL       133744
+LETTERS        152795
+DATE           258348
+PUNCT         1880507
+PLAIN         7353693
+
+
+15        522
+13       1196
+10       1465
+14       4024
+11       5162
+12       5442
+8        6128
+6        9821
+9       12703
+7       14783
+5       78108
+4      133744
+3      152795
+2      258348
+1     1880507
+0     7353693
+
+[u'PLAIN', u'PUNCT', u'DATE', u'LETTERS', u'CARDINAL', u'VERBATIM',
+       u'DECIMAL', u'MEASURE', u'MONEY', u'ORDINAL', u'TIME', u'ELECTRONIC',
+       u'DIGIT', u'FRACTION', u'TELEPHONE']

@@ -1,0 +1,6 @@
+https://github.com/google/sparrowhawk
+
+https://github.com/mjansche/tts-tutorial
+
+An example of call sparrowhawk(Afrikaans language)
+https://github.com/danijel3/SparrowhawkTest
