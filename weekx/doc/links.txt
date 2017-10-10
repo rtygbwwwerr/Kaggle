@@ -7,3 +7,9 @@ https://github.com/danijel3/SparrowhawkTest
 
 
 https://github.com/se4u/neural_wfst.git
+
+pynini(Thrax in python, need VPN)
+opengrm.org
+
+https://blog.keras.io/a-ten-minute-introduction-to-sequence-to-sequence-learning-in-keras.html
+https://github.com/polaroidkidd/Keras-Seq2Seq-Tutorial
