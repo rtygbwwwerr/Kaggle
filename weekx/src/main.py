@@ -577,7 +577,7 @@ def loadModel(path):
 # 	scores = model.evaluate(X_test, y_test, verbose=0)
 # 	print("Accuracy: %.2f%%" % (scores[1]*100))
 
-def export_fearure_data():
+def export_feature_data():
 
 	df_train = pd.read_csv('../data/en_train_filted_all.csv')
 	x_t, y_t = data_process.gen_features(df_train)
@@ -726,7 +726,7 @@ def evalute_acc(ret_file, err_file):
 if __name__ == "__main__":
 	experiment_attention4()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
-# 	export_fearure_data()
+# 	export_feature_data()
 # 	experiment()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
