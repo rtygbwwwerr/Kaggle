@@ -724,7 +724,7 @@ def evalute_acc(ret_file, err_file):
 	print 'The corrected num is:%d, real acc:%f'%(len(df_c), len(df_c)/float(len(df_ret)))
 	
 if __name__ == "__main__":
-	experiment_teaching1()
+	experiment_attention4()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_fearure_data()
 # 	experiment()
