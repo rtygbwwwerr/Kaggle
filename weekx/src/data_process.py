@@ -8,6 +8,7 @@ from sklearn import metrics
 from collections import Counter
 import seaborn as sns
 from sklearn import preprocessing
+from bokeh.layouts import row
 sys.path.append('../../')
 from base import data_util
 
@@ -140,6 +141,8 @@ def extract_after_feature(data, is_normalized=False):
 	return vals
 
 
+
+
 def extract_2gram_feature(data, is_normalized=False):
 	return extract_ngram_feature(data, 2)
 
@@ -152,11 +155,8 @@ def down_sampling_discard(word, before_after_dict,rate=0.025):
 	else:
 		return False
 
-def extract_ngram_feature(data, ngram=2):
-	ngram_features = []
-	discard_index_set = set()
+def gen_before_after_dict(df):
 	before_after_dict = {}
-	N = len(data)
 	def add_to_dic(key, val):
 		if before_after_dict.has_key(key):
 			vals = before_after_dict[key]
@@ -167,18 +167,229 @@ def extract_ngram_feature(data, ngram=2):
 			vals.append(val)
 			before_after_dict[key] = vals
 	
+	df.apply(lambda x: add_to_dic(x['before'], x['after']), axis=1)
+	return before_after_dict
+
+def char_to_code(c):
+	code = ord(c)
+	if ord(c) >= cfg.min_char_code and ord(c) < cfg.max_char_code:
+		return code - 26
+	else:
+		return cfg.unk_flg_index
+	
+def char_to_code_nor(c):
+	return cfg.dic_input_char2i.get(c, cfg.unk_flg_index)
+
+def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50, is_normalized=False):
+	feat_m = []
+	feat_l = []
+	feat_r = []
+	
+	l_len = l_len_max
+	m_len = m_len_max
+	r_len = r_len_max
+	N = len(data)
+
 	for i in range(N):
 		
 		if i % 100000 == 0:
 			print i
 		
-	
-		skip_flg = down_sampling_discard(data.at[i, 'before'], before_after_dict, 0.0000)
-		if skip_flg:
-			discard_index_set.add(i)
+		#skip unchanged words
+		if data.at[i, 'new_class'] == 0:
 			continue
 		
-		add_to_dic(data.at[i, 'before'], data.at[i, 'after'])
+		token_id = data.at[i, 'token_id']
+		token = map(lambda c : char_to_code(c) , list(str(data.at[i, 'before'])))
+		if len(token) > m_len:
+			token = token[:m_len]
+		
+		MaxToken = token_id
+		k = i + 1
+		while k < N:
+			token_id_c = data.at[k, 'token_id']
+			if token_id_c > token_id:
+				MaxToken = token_id_c
+				k = k + 1
+			else:
+				break
+			
+		l_context = []
+		l_token_id = token_id
+		while l_len > 0 and l_token_id >= 0:
+			if l_token_id == 0:
+				l_context.insert(0, cfg.start_flg_index)
+				l_len -= 1
+				l_token_id -= 1
+				
+			elif l_token_id > 0 and l_token_id <= MaxToken:
+				l_token_id -= 1
+				l_token = map(lambda c : char_to_code(c) , list(str(data.at[i - (token_id - l_token_id), 'before'])))
+				l_token.append(cfg.split_token_index)
+				l_context = l_token + l_context
+				l_len -= len(l_token)
+				if l_len <= 0:
+					l_context = l_context[-l_len:]
+					
+		r_context = []
+		r_token_id = token_id
+		while r_len > 0 and r_token_id <= MaxToken:
+			if r_token_id == MaxToken:
+				r_context.append(cfg.end_flg_index)
+				r_len -= 1
+				r_token_id += 1
+				
+			elif r_token_id >= 0 and r_token_id < MaxToken:
+				r_token_id += 1
+				r_token = map(lambda c : char_to_code(c) , list(str(data.at[i + (r_token_id - token_id), 'before'])))
+				r_token.insert(0, cfg.split_token_index)
+				r_context.extend(r_token)
+				r_len -= len(r_token)
+				if r_len <= 0:
+					r_context = r_context[:r_len]
+					
+		feat_m.append(token)
+		feat_l.append(l_context)
+		feat_r.append(r_context)
+		
+	features_l = sequence.pad_sequences(feat_l, maxlen=l_len_max, padding='post')
+	features_m = sequence.pad_sequences(feat_m, maxlen=m_len_max, padding='post')
+	features_r = sequence.pad_sequences(feat_r, maxlen=r_len_max, padding='post')
+	print "complated extract fragment char feature!"
+	return features_l, features_m, features_r
+		
+def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normalized=False):
+	
+	features = []
+	N = len(data)
+
+	for i in range(N):
+		
+		if i % 100000 == 0:
+			print i
+			
+		if data.at[i, 'new_class'] == 0:
+			continue
+		
+		token_id = data.at[i, 'token_id']
+		token = map(lambda c : fn_c2i(c) , list(str(data.at[i, 'before'])))
+		
+		#sub 2 is place for the split-input flag
+		length = max_length - 2
+		rem_len = length - len(token)
+		
+		MaxToken = token_id
+		k = i + 1
+		while k < N:
+			token_id_c = data.at[k, 'token_id']
+			if token_id_c > token_id:
+				MaxToken = token_id_c
+				k = k + 1
+			else:
+				break
+		
+		if rem_len < 0:
+			token = token[0:length]
+			
+		token.insert(0, cfg.split_input_index)
+		token.append(cfg.split_input_index)
+		
+ 		rem_len = max_length - len(token)
+		
+		
+		if rem_len == 0:
+			if token_id == 0:
+				
+				token = token[2:]
+				token.insert(0, cfg.split_input_index)
+				token.insert(0, cfg.start_flg_index)
+				
+			if token_id == MaxToken:
+				token = token[:-2]
+				token.append(cfg.split_input_index)
+				token.append(cfg.end_flg_index)
+			
+			
+			
+		sp_len = rem_len / 2
+		l_len = sp_len + (rem_len - sp_len * 2)
+		r_len = sp_len
+		if token_id == 0 and token_id < MaxToken and l_len > 1:
+			r_len = r_len + (l_len - 1)
+			l_len = 1
+		elif token_id == MaxToken and token_id > 0 and r_len > 1:
+			l_len = l_len + (r_len - 1)
+			r_len = 1
+		
+		
+		l_context = []
+		l_token_id = token_id
+		while l_len > 0 and l_token_id >= 0:
+			if l_token_id == 0:
+				l_context.insert(0, cfg.start_flg_index)
+				l_len -= 1
+				l_token_id -= 1
+				
+			elif l_token_id > 0 and l_token_id <= MaxToken:
+				l_token_id -= 1
+				l_token = map(lambda c : fn_c2i(c) , list(str(data.at[i - (token_id - l_token_id), 'before'])))
+				l_token.append(cfg.split_token_index)
+				l_context = l_token + l_context
+				l_len -= len(l_token)
+				if l_len <= 0:
+					l_context = l_context[-l_len:]
+			
+		
+		r_context = []
+		r_token_id = token_id
+		while r_len > 0 and r_token_id <= MaxToken:
+			if r_token_id == MaxToken:
+				r_context.append(cfg.end_flg_index)
+				r_len -= 1
+				r_token_id += 1
+				
+			elif r_token_id >= 0 and r_token_id < MaxToken:
+				r_token_id += 1
+				r_token = map(lambda c : fn_c2i(c) , list(str(data.at[i + (r_token_id - token_id), 'before'])))
+				r_token.insert(0, cfg.split_token_index)
+				r_context.extend(r_token)
+				r_len -= len(r_token)
+				if r_len <= 0:
+					r_context = r_context[:r_len]
+		
+		context = l_context + token + r_context
+ 		features.append(context)
+#  		print "%d:%s"%(i, str(context))
+# 	features = ngram_features
+	features = sequence.pad_sequences(features, maxlen=max_length, padding='post')
+	print "complated extract char feature!"
+	return features
+
+	
+def extract_ngram_feature(data, ngram=2):
+	ngram_features = []
+# 	discard_index_set = set()
+# 	before_after_dict = {}
+	N = len(data)
+# 	def add_to_dic(key, val):
+# 		if before_after_dict.has_key(key):
+# 			vals = before_after_dict[key]
+# 			if val not in vals:
+# 				vals.append(val)
+# 		else:
+# 			vals = []
+# 			vals.append(val)
+# 			before_after_dict[key] = vals
+	
+	for i in range(N):
+		
+		if i % 100000 == 0:
+			print i
+	
+		if data.at[i, 'new_class'] == 0:
+			continue
+		
+# 		add_to_dic(data.at[i, 'before'], data.at[i, 'after'])
 		
 		token_id = data.at[i, 'token_id']
 # 		token_id = row['token_id'].values[0]
@@ -200,27 +411,27 @@ def extract_ngram_feature(data, ngram=2):
 			
 			if t < 0:
 # 				char_list = cfg.start_word
-				context.append(cfg.boundary_start)
+				context.append(cfg.start_flg_index)
 # 				print "i:%d,m:%d,t:%d, start"%(i, m, t)
 			elif t > MaxToken:
 # 				print "i:%d,m:%d,t:%d, end"%(i, m, t)
 # 				char_list = cfg.end_word
-				context.append(cfg.boundary_end)
+				context.append(cfg.end_flg_index)
 			else:
 # 				print "i:%d,m:%d,t:%d, mid"%(i, m, t)
-				char_list = [ord(v) for v in list(str(data.at[m, 'before']))]
+				char_list = [cfg.dic_input_char2i.get(v, cfg.unk_flg_index) for v in list(str(data.at[m, 'before']))]
 				
 				if t == token_id:
-					context.append(cfg.input_split)
+					context.append(cfg.split_input_index)
 					context.extend(char_list)
-					context.append(cfg.input_split)
+					context.append(cfg.split_input_index)
 				elif t == (token_id - 1):
 # 					context.append(cfg.space_letter)
 					context.extend(char_list)
 # 					context.append(cfg.space_letter)
 				else:
 					context.extend(char_list)
-					context.append(cfg.space_letter)
+					context.append(cfg.split_token_index)
 # 				for l in range(0, len(char_list)):
 # 					char_arr[l + 1] = char_list[l]
 			#insert split flag in both sides of the input word
@@ -230,7 +441,7 @@ def extract_ngram_feature(data, ngram=2):
 # 	features = ngram_features
 	features = sequence.pad_sequences(ngram_features, maxlen=cfg.max_input_len, padding='post')
 	print "complated extract ngram feature!"
-	return features, discard_index_set
+	return features
 
 
 def extract_all_features(df_list, is_normalized=False):
@@ -260,21 +471,35 @@ def load_dict(file):
 	dic[cfg.non_flg] = cfg.non_flg_index
 	return dic
 
-
-def extract_y_info(data, discard_index_set=None):
-
-	dic = load_dict('../data/out_vocab.csv')
-
+def load_dict_in(file):
+	input_set = load(file)
+	chars = list(input_set)
+	dic = {}
+	dic[cfg.start_flg] = cfg.start_flg_index
+	dic[cfg.end_flg] = cfg.end_flg_index
+	dic[cfg.unk_flg] = cfg.unk_flg_index
+	dic[cfg.non_flg] = cfg.non_flg_index
+	dic[cfg.split_input] = cfg.split_input_index
+	dic[cfg.split_token] = cfg.split_token_index
+	for k, v in enumerate(chars):
+		dic[v] = k + 6
+		
+	return dic
+		
 	
+def extract_y_info(data):
+
+# 	dic = load_dict('../data/out_vocab.csv')
+
 	def covert(x):
 		words = str(x).strip().split(' ')
-		values = map(lambda x: dic.get(x, cfg.copy_flag_index), words)
-		values.insert(0, dic[cfg.start_flg])
-		values.append(dic[cfg.end_flg])
+		values = map(lambda x: cfg.dic_output_word2i.get(x, cfg.copy_flag_index), words)
+		values.insert(0, cfg.dic_output_word2i[cfg.start_flg])
+		values.append(cfg.dic_output_word2i[cfg.end_flg])
 		return values
 	list_values = []
 	for i in range(len(data)):
-		if discard_index_set is not None and i in discard_index_set:
+		if data.at[i, 'new_class'] == 0:
 			continue
 		values = covert(data.at[i, 'after'])
 		list_values.append(values)
@@ -301,6 +526,37 @@ def load(path):
 	f.close()
 	return obj
 
+def gen_alpha_table():
+	df = pd.read_csv('../data/en_train.csv')
+	
+	#using nonlocal variable in python 2.x
+	table = [set()]
+	
+	def add_set(x):
+		table[0] = table[0] | set(str(x))
+	
+	df['before'].apply(lambda x: add_set(x))
+	
+	df = pd.read_csv('../data/en_test.csv')
+	df['before'].apply(lambda x: add_set(x))
+	
+	print len(table[0])
+	
+	list_table = []
+	list_min = []
+	list_max = []
+	for c in table[0]:
+		if ord(c) >= cfg.min_char_code and ord(c) <= cfg.max_char_code:
+			list_table.append(ord(c))
+		elif ord(c) < cfg.min_char_code:
+			list_min.append(ord(c))
+		else:
+			list_max.append(ord(c))
+	print "char num in [0,31]:%d"%(len(list_table))
+	print "char num in [32,126]:%d"%len(list_min)
+	print "char num in [127,):%d"%len(list_max)
+	dump(table[0], '../data/input_alpha_table')
+
 def gen_features(df, is_normalized=False):
 	gram, discard_index_set = extract_2gram_feature(df, is_normalized)
 	y = extract_y_info(df, discard_index_set)
@@ -321,6 +577,77 @@ def gen_features(df, is_normalized=False):
 	display_feature_info(df_filted, 'class')
 	df_filted.to_csv('../data/en_train_filted.csv', index=False)
 	return gram, y
+
+def gen_new_class_feature(df):
+# 	print len(df)
+	cls_list = df['new_class'].values
+	
+	save_numpy_data('../data/class.npy', cls_list)
+# 	to_categorical(cls_list, num_classes = 3)
+
+def gen_classify_feature(df):
+	y_t_cls = df['new_class'].values
+	x_t = extract_char_feature(df)
+	
+	index = np.where(y_t_cls!=0)[0].tolist()
+	#filter the non-change items
+	y_t_cls = y_t_cls[index]
+	print(y_t_cls.shape[0])
+	y_t_cls = y_t_cls - 1
+# 	x_t = x_t[index]
+	print(x_t.shape[0])
+	y_t_cls = to_categorical(y_t_cls)
+	
+	df_out = df.iloc[index]
+	print len(df_out)
+	df_out.to_csv('../data/train_classify.csv', index=False)
+	np.savez("../data/train_classify.npz", x_t = x_t, y_t = y_t_cls)
+
+		
+def gen_test_feature(df):
+	y_t_cls = df['new_class'].values
+	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
+	x_t_cls = extract_char_feature(df)
+	x_t = extract_2gram_feature(df)
+	
+	index = np.where(y_t_cls!=0)[0].tolist()
+	#filter the non-change items
+# 	y_t_cls = y_t_cls[index]
+# 	print(y_t_cls.shape[0])
+# 	y_t_cls = y_t_cls - 1
+# 	x_t = x_t[index]
+	print(x_t.shape[0])
+	print(x_t_cls.shape[0])
+# 	y_t_cls = to_categorical(y_t_cls)
+	
+	df_out = df.iloc[index]
+	print len(df_out)
+	df_out.to_csv('../data/test_classify.csv', index=False)
+	np.savez("../data/en_test.npz", x_t_cls = x_t_cls, x_t = x_t)
+	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
+def gen_train_feature(df):
+
+# 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
+	y_t_cls = df['new_class'].values
+	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
+	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
+	x_t = extract_2gram_feature(df)
+	y_t = extract_y_info(df)
+	index = np.where(y_t_cls!=0)[0].tolist()
+	y_t_cls = y_t_cls[index]
+	y_t_cls = y_t_cls - 1
+	y_t_cls = to_categorical(y_t_cls)
+	df_out = df.iloc[index]
+	print(x_t.shape[0])
+	print(x_t_cls.shape[0])
+	print(y_t.shape[0])
+	print(y_t_cls.shape[0])
+	print len(df_out)
+	
+	df_out.to_csv('../data/train_filted_classify.csv', index=False)
+	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
+# 	np.savez("../data/en_train_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
+	np.savez("../data/en_train.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
 	
 def down_sampling(x, y):
 	del_index = []
@@ -333,25 +660,42 @@ def down_sampling(x, y):
 	y = np.delete(y, del_index, axis=0)
 	return x, y
 
-def gen_data_from_npz(file_npz, range=None):
+# def gen_classify_data_from_np(file_np):
+# 	x_t, _ = load_numpy_datas(file_npz)
+# 	y_t_cls = load_numpy_data("../data/train_class_info.npy")
+# 	y_t_cls = to_categorical(y_t_cls, num_classes=3)
+	
+def gen_data_from_npz(file_npz, is_for_classify=False):
+	
 	x_t, y_t = load_numpy_datas(file_npz)
 	
-	df = pd.read_csv('../data/en_train_filted.csv')
 # 	df['id'] = df.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
 	
 	
-	if range is not None:
-		x_t = x_t[range[0]:range[1]]
-		y_t = y_t[range[0]:range[1]]
+# 	if range is not None:
+# 		x_t = x_t[range[0]:range[1]]
+# 		y_t = y_t[range[0]:range[1]]
+	train = None
+	valid = None
+	if is_for_classify:
+# 		x_t = x_t[0:1000]
+# 		y_t_cls = y_t_cls[0:1000]
+		
+		x_train, x_valid, y_train, y_valid = train_test_split(x_t, y_t, test_size=10000, random_state=0)
 	
-	df_train, df_valid, arr_train, arr_valid = train_test_split(df, np.hstack([x_t, y_t]),
-                                                      test_size=10000, random_state=0)
+	else:
+		df = pd.read_csv('../data/en_train_filted.csv')
+		train, valid, arr_train, arr_valid = train_test_split(df, np.hstack([x_t, y_t]),
+	                                                      test_size=10000, random_state=0)
 	
-	x_train = arr_train[:, 0:x_t.shape[1]]
-	y_train = arr_train[:, x_t.shape[1]:]
+		x_train = arr_train[:, 0:x_t.shape[1]]
+		y_train = arr_train[:, x_t.shape[1]:]
+		
+		x_valid = arr_valid[:, 0:x_t.shape[1]]
+		y_valid = arr_valid[:, x_t.shape[1]:]
 	
-	x_valid = arr_valid[:, 0:x_t.shape[1]]
-	y_valid = arr_valid[:, x_t.shape[1]:]
+	
+
 # 	exception_ind = np.where(y_t==1)
 # 	print exception_ind
 # 	df = pd.read_csv('../data/en_train_filted_small.csv')
@@ -362,7 +706,7 @@ def gen_data_from_npz(file_npz, range=None):
 # 	vaild_index = random.sample(range(0, len(df)), int(0.1 * len(df)));
 # 	train_index = list(set(all_index) ^ set(vaild_index))
 # 	
-# 	df_train = df.iloc[train_index]
+# 	train = df.iloc[train_index]
 # 	df_vaild = df.iloc[vaild_index]
 
 # 	x_train = x_t
@@ -371,13 +715,13 @@ def gen_data_from_npz(file_npz, range=None):
 # 	x_valid = x_train[0:1000]
 # 	y_valid = y_train[0:1000]
 	print "Load Train data:%d, Vaild data:%d"%(len(x_train), len(x_valid))
-	return x_train, y_train, x_valid, y_valid, df_train, df_valid
+	return x_train, y_train, x_valid, y_valid, train, valid
 
 # def down_sampling(x_train, y_train):
 # 	
 # 	for i, y in enumerate(y_train):
 
-def load_input_dict():
+def load_constant_dict():
 	df = pd.read_csv('../data/constant_vocab.csv')
 	in_vocab = set()
 	df['word'].apply(lambda x: in_vocab.add(x))
@@ -392,9 +736,9 @@ def gen_input_plain_vocab():
 	voc.to_csv('../data/in_plain_vocab.csv', index=True)
 	print "save in-plain-vocab with size:%d"%(len(voc))
 
-def gen_data(df_train, df_test=None, is_resample=False, is_normalized=False):
+def gen_data(train, df_test=None, is_resample=False, is_normalized=False):
 	
-	x_train, y_train = gen_features(df_train, is_normalized)
+	x_train, y_train = gen_features(train, is_normalized)
 	
 	x_train, x_valid, y_train, y_valid = train_test_split(x_train, y_train,
                                                       test_size=0.1, random_state=2017)
@@ -493,19 +837,19 @@ def display_feature_info(df, name):
 	print "num_class of %s is:%d"%(name, num_class)
 	print cnts
 
-def display_sentence(id):
-	df_train = pd.read_csv('../data/en_train.csv')
-	df = df_train[df_train['sentence_id']==id]
+def display_sentence(id, data):
+# 	train = pd.read_csv('../data/en_train.csv')
+	df = data[data['sentence_id']==id]
 	print df
 
 def test():
-	df_train = pd.read_csv('../data/en_train.csv')
+	train = pd.read_csv('../data/en_train.csv')
 	out_path = '../data/'
 	
-	x_train = call_feature_func(df_train, ['before']).values
+	x_train = call_feature_func(train, ['before']).values
 	print len(x_train)
 # 	display_feature_info(feats, 'before_0')
-	y_train = extract_y_info(df_train).values
+	y_train = extract_y_info(train).values
 	
 	x_train, x_valid, y_train, y_valid= train_test_split(x_train, y_train,
                                                       test_size=0.1, random_state=2017)
@@ -545,14 +889,14 @@ def test():
 	
 	model.save_model(os.path.join(out_path, 'xgb_model'))
 	
-# 	display_feature_info(df_train, 'sentence_id')
-# 	display_feature_info(df_train, 'token_id')
-# 	display_feature_info(df_train, 'after')
+# 	display_feature_info(train, 'sentence_id')
+# 	display_feature_info(train, 'token_id')
+# 	display_feature_info(train, 'after')
 
 def display_varible_terms():
-	df_train = pd.read_csv('../data/en_train.csv')
-	df1 = df_train[(df_train['class']=='PLAIN') & (df_train['before'] != df_train['after'])]
-	df2 = df_train[(df_train['class']=='PLAIN') & (df_train['before'] == df_train['after'])]
+	train = pd.read_csv('../data/en_train.csv')
+	df1 = train[(train['class']=='PLAIN') & (train['before'] != train['after'])]
+	df2 = train[(train['class']=='PLAIN') & (train['before'] == train['after'])]
 	dict1 = df1['before'].value_counts().to_dict()
 	dict2 = df2['before'].value_counts().to_dict()
 	
@@ -568,8 +912,8 @@ def display_varible_terms():
 	
 
 def gen_spec_dict(class_name):
-	df_train = pd.read_csv('../data/en_train.csv')
-	df = df_train[(df_train['class']==class_name) & (df_train['before'] != df_train['after'])]
+	train = pd.read_csv('../data/en_train.csv')
+	df = train[(train['class']==class_name) & (train['before'] != train['after'])]
 	grouped = df.groupby(['before'])
 	
 # 	groups = []
@@ -617,12 +961,12 @@ def gen_out_vocab():
 
 		
 def display_longest_sentence():
-	df_train = pd.read_csv('../data/en_train.csv')
+	train = pd.read_csv('../data/en_train.csv')
 # 	print "word number:"
-# 	df_train['token_id'].value_counts()
+# 	train['token_id'].value_counts()
 	
 	
-	grouped = df_train.groupby(['sentence_id'])
+	grouped = train.groupby(['sentence_id'])
 	
 	sentences = []
 	lengths = []
@@ -636,7 +980,7 @@ def display_longest_sentence():
 # 		group.drop('len',axis=1, inplace=True)
 	print max(lengths)
 # 	df_out = pd.DataFrame(sentences, lengths, columns=['sentence_id', 'char_num'])
-# 	df_train['char_num'].value_counts()
+# 	train['char_num'].value_counts()
 	
 	
 def display_max_ngram_feature_length(data, n=2):
@@ -649,12 +993,12 @@ def display_max_y_length(data):
 	lens = map(lambda x: len(x), y_train)
 	print "max y length is %d"%(max(lens))
 
-def save_numpy_data(file, np_data):
-	f = file(file, "wb")
+def save_numpy_data(path, np_data):
+	f = file(path, "wb")
 	np.save(f, np_data)
 
-def load_numpy_data(file):
-	f = file(file, "rb")
+def load_numpy_data(filepath):
+	f = file(filepath, "rb")
 	return np.load(f)
 
 def load_numpy_datas(file):
@@ -705,25 +1049,46 @@ def display_data_info(data):
 	cnt = extract_before_len_feature(data).value_counts().sort_values()
 # 	print cnt
 
+def add_class_info(in_path, out_path):
+	df = pd.read_csv(in_path)
+# 	before_after_dict = gen_before_after_dict(df)
+	
+	
+	def get_new_class(row):
+		cls = -1
+		if (row['before'] in cfg.dic_constant):
+			cls = 0
 
-
+		elif row['class'] in cfg.class1:
+			cls = 1
+		elif row['class'] in cfg.class2:
+			cls = 2
+		elif row['class'] in cfg.class3:
+			cls = 3
+		
+		return cls
+	
+	df['new_class'] = df.apply(lambda x : get_new_class(x), axis=1)
+	df.to_csv(out_path, index=False)
+	print "saved classify data"
+	
 if __name__ == "__main__":
 	
-	df_train = pd.read_csv('../data/en_train_filted.csv')
+	train = pd.read_csv('../data/en_train_filted.csv')
 # 	df_test = pd.read_csv('../data/en_test_filted.csv')
-# 	Len_orgin = len(df_train)
+# 	Len_orgin = len(train)
 # 	print 'length %d'%(Len_orgin)
-# 	data = filter_data_by_len(df_train)
+# 	data = filter_data_by_len(train)
 # 	Len_filted = len(data)
 # 	data.to_csv('../data/en_test_filted.csv', index=False)
 # 	print 'reduce length %d -> %d'%(Len_orgin, Len_filted)
 # 	df_test = pd.read_csv('../data/en_test.csv')
-# 	display_data_info(df_train)
+# 	display_data_info(train)
 # 	display_max_ngram_feature_length(df_test)
 	
 	begin = datetime.datetime.now()
 
-	x_t, y_t = gen_features(df_train)
+	x_t, y_t = gen_features(train)
 	
 	print len(x_t)
 	print len(y_t)

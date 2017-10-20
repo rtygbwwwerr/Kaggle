@@ -1,30 +1,45 @@
 import data_process
 
 class Config(object):
-	
+	dic_input_char2i = {}
 	dic_output_word2i = {}
 	dic_output_i2word ={}
 	output_vocab_size = 0
 	dic_constant = None
-	
+	input_vocab_size = 0
 	@staticmethod
 	def init():
+		Config.dic_input_char2i = data_process.load_dict_in('../data/input_alpha_table')
+		Config.input_vocab_size = len(Config.dic_input_char2i)
 		Config.dic_output_word2i = data_process.load_dict('../data/out_vocab.csv')
 		Config.output_vocab_size = len(Config.dic_output_word2i)
 		Config.dic_output_i2word = {v: k for k, v in Config.dic_output_word2i.items()}
 		print 'len w2i:%d, len i2w:%d'%(len(Config.dic_output_word2i), len(Config.dic_output_i2word))
-		Config.dic_constant = data_process.load_input_dict()
+		Config.dic_constant = data_process.load_constant_dict()
 		print 'input constant word num:%d'%(len(Config.dic_constant))
 		
+	class1 = set(['PUNCT', 'PLAIN'])
+	class2 = set(['VERBATIM', 'LETTERS', 'ELECTRONIC'])
+	class3 = set(['FRACTION','TIME','TELEPHONE','DIGIT','MONEY','DECIMAL','ORDINAL','MEASURE','CARDINAL','DATE', 'ADDRESS'])
 	batch_size = 85
 	max_num_features = 31
 # 	max_input_len = 1120,550,280
-	max_input_len = 140
+	max_input_len = 80
+	max_classify_input_len = 50
+	max_left_input_len = 50
+	max_mid_input_len = 50
+	max_right_input_len = 50
+	
+	dim_left_embedding = 50
+	dim_right_embedding = 50
+	dim_mid_embedding = 50
+	
+	input_classify_vocab_size = 101
 # 	max_output_len = 1850,411
 	max_output_len = 111
 	max_token_char_num = 40
 	word_vec_len = 255
-	input_vocab_size = 258
+	
 
 	input_hidden_dim = 512
 	space_letter = 0
@@ -33,12 +48,17 @@ class Config(object):
 	boundary_start = 2
 	boundary_end = 3
 	
+	min_char_code = 32
+	max_char_code = 126
+	
 	start_flg = '<GO>'
 	end_flg = '<EOS>'
 	copy_flg = '<UNK>'
 	unk_flg = '<UNK>'
 	pad_flg = '<PAD>'
 	non_flg = '<PAD>'
+	split_input = '<SPLIT-INPUT>'
+	split_token = '<SPLIT-TOKEN>'
 	non_flg_index = 0
 	pad_flg_index = 0
 	unk_flg_index = 3
@@ -47,9 +67,18 @@ class Config(object):
 	copy_flag_index = 3
 	start_word = [boundary_start]*(word_vec_len-2)
 	end_word = [boundary_end]*(word_vec_len-2)
-	input_split = 1
 	
-	max_input_char_num = 1300
+	split_token_index = 4
+	split_input_index = 5
+ 	
+
+	hidden_size = 128 
+	drop_prob_1 = 0.25 # dropout after pooling with probability 0.25
+	drop_prob_2 = 0.5 # dropout in the FC layer with probability 0.5
+	pool_size = 2
+	l2_lambda = 0.0001
+	conv_depth = 32 # use 32 kernels in both convolutional layers
+	kernel_size = 3
 	dic_month = {"Jan":'january','Feb': 'february','Mar': 'march','Apr': 'april','May': 'may',
 			'Jun': 'june','Jul': 'july','Jy': 'july','Aug': 'august','Sep': 'september',
 			'Sept': 'september','Oct': 'october','Nov': 'november','Dec' : 'december',
