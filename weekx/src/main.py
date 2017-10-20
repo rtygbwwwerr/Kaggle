@@ -1386,7 +1386,7 @@ if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
 # 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-#  	df = pd.read_csv('../data/en_train_filted_class.csv')
+	df = pd.read_csv('../data/en_train_filted_class.csv')
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
 #  	df_c1 = df[df['new_class'] == 1]
 #  	c1_cnt = df_c1['len'].value_counts().sort_values()
@@ -1400,7 +1400,7 @@ if __name__ == "__main__":
  	
 #  	del df['len']
 #  	print 'saved cnt info.'
-# 	data_process.gen_train_feature(df)
+	data_process.gen_train_feature(df)
 	
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
