@@ -125,6 +125,26 @@ def classify_generator(X, y, batch_size=128, shuffle=True):
 			if shuffle:
 				np.random.shuffle(sample_index)
 			counter = 0
+			
+def classify_generator_extend(X, y, batch_size=128, shuffle=True):
+	number_of_batches = np.ceil(X.shape[0]/batch_size)
+	counter = 0
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+	while True:
+		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+		X_batch = X[batch_index,:]
+		y_batch = y[batch_index,:]
+		X_batch_c = X_batch[:, 0:cfg.max_input_len]
+		X_batch_e = X_batch[:, cfg.max_input_len:]
+		counter += 1
+		yield [X_batch_c, X_batch_e], y_batch
+		if (counter == number_of_batches):
+			if shuffle:
+				np.random.shuffle(sample_index)
+			counter = 0
 
 
 def classify_generator_onehot(X, y, batch_size=128, shuffle=True):
@@ -366,7 +386,7 @@ def train_teaching(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, bat
 	print('Test logloss:', score)
 
 def train_teaching_onehot(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 100):
-	path = '../data/'
+
 	# reshape X to be [samples, time steps, features]
 # 	X_valid = np.reshape(X_valid, (X_valid.shape[0], X_valid.shape[1], 1))
 # 	Y_valid = np.reshape(Y_valid, (Y_valid.shape[0], Y_valid.shape[1], 1))
@@ -375,7 +395,7 @@ def train_teaching_onehot(model, ret_file_head, X_train, Y_train, X_valid, Y_val
 # 	print X_train.shape[0]
 # 	print X_train.shape[1]
 
-	board = TensorBoard(log_dir='../logs', histogram_freq=0, write_graph=True,
+	board = TensorBoard(log_dir='../logs/nt1/', histogram_freq=0, write_graph=True,
 				 write_images=True, embeddings_freq=0, 
 				 embeddings_layer_names=None, embeddings_metadata=None)
 	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
@@ -558,8 +578,6 @@ def train_classify_frag(model, ret_file_head, X_train, Y_train, X_valid, Y_valid
 	
 def train_classify(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 3):
 	
-	
-	path = '../data/'
 	# reshape X to be [samples, time steps, features]
 # 	X_valid = np.reshape(X_valid, (X_valid.shape[0], X_valid.shape[1], 1))
 # 	Y_valid = np.reshape(Y_valid, (Y_valid.shape[0], Y_valid.shape[1], 1))
@@ -568,10 +586,10 @@ def train_classify(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, bat
 # 	print X_train.shape[0]
 # 	print X_train.shape[1]
 
-	board = TensorBoard(log_dir='../logs', histogram_freq=0, write_graph=True,
+	board = TensorBoard(log_dir='../logs/c4/', histogram_freq=0, write_graph=True,
 				 write_images=True, embeddings_freq=0, 
 				 embeddings_layer_names=None, embeddings_metadata=None)
-	check_file = "../checkpoints/%s%s_%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head,"1","1")
+	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
 	checkpointer = ModelCheckpoint(monitor="acc", filepath=check_file, verbose=1, save_best_only=True)
 	# start training
 	start_time = time.time()
@@ -590,6 +608,38 @@ def train_classify(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, bat
 	print 'Training time', time.time() - start_time
 	# evaluate network
 	score = model.evaluate(X_valid, Y_valid, batch_size)
+
+# 	val = np.max(p_y, axis=2)
+# 	print val
+	print('Test logloss:', score)
+	
+def train_classify_extend(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 3):
+	
+	X_valid_c = X_valid[:, 0:cfg.max_input_len]
+	X_valid_e = X_valid[:, cfg.max_input_len:]
+	
+	board = TensorBoard(log_dir='../logs/c3/', histogram_freq=0, write_graph=True,
+				 write_images=True, embeddings_freq=0, 
+				 embeddings_layer_names=None, embeddings_metadata=None)
+	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
+	checkpointer = ModelCheckpoint(monitor="acc", filepath=check_file, verbose=1, save_best_only=True)
+	# start training
+	start_time = time.time()
+ 	
+	samples_per_epoch = int(math.ceil(X_train.shape[0] / float(batch_size)))
+# 	samples_per_epoch = batch_size * 2
+	model.fit_generator(generator=classify_generator_extend(X_train, Y_train, batch_size, True), 
+	                    samples_per_epoch = samples_per_epoch, 
+	                    nb_epoch = nb_epoch, 
+	                    verbose=1,
+	                    validation_data = ([X_valid_c, X_valid_e], Y_valid),
+# 			    	    validation_data=sparse_generator(X_valid, Y_valid, batch_size, False), 
+# 			    	    nb_val_samples=int(math.ceil(X_valid.shape[0] / float(batch_size))),
+			    	    callbacks=[board, checkpointer]
+			    		)
+	print 'Training time', time.time() - start_time
+	# evaluate network
+	score = model.evaluate([X_valid_c, X_valid_e], Y_valid, batch_size)
 
 # 	val = np.max(p_y, axis=2)
 # 	print val
@@ -794,108 +844,175 @@ def gen_model_teaching_0():
 	# Define the model that will turn
 	# `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
 	model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
-	model.compile(optimizer='Adadelta', loss='categorical_crossentropy', metrics=['accuracy'])
+	model.compile(optimizer='Adagrad', loss='categorical_crossentropy', metrics=['accuracy'])
 # 	extend_args = {'encoder_inputs':encoder_inputs, "encoder_states":encoder_states, "decoder_inputs":decoder_inputs,
 # 				   'decoder_lstm':decoder_lstm, 'decoder_dense':decoder_dense }
 	return model
 
 def gen_model_class_0():
 	
-	embedding_len = cfg.input_classify_vocab_size / 2
+	embedding_len = cfg.input_vocab_size / 2
 	
-	embedding_layer = Embedding(input_dim = cfg.input_classify_vocab_size,  
+	embedding_layer = Embedding(input_dim = cfg.input_vocab_size,  
                             output_dim = embedding_len,  
-                            input_length=cfg.max_classify_input_len,
+                            input_length=cfg.max_input_len,
                             embeddings_initializer = 'glorot_uniform',
 #                             weights=[embedding_matrix],  
                             trainable=True)
 	model1 = Sequential()
 	model1.add(embedding_layer)
 # 	model1.add(GaussianNoise(1))
-	model1.add(Conv1D(filters = 16, kernel_size = 2, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
+	model1.add(Conv1D(filters = 16, kernel_size = 2, ))
 	model1.add(PReLU())
 	model1.add(BatchNormalization())
-	model1.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model1.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', ))
 	model1.add(BatchNormalization())
 	model1.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
 	model1.add(BatchNormalization())
 	model1.add(MaxPool1D(2))
 # 	model1.add(Dropout(0.1))
-	
-	model1.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
-	model1.add(BatchNormalization())
-	model1.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
-	model1.add(BatchNormalization())
-	model1.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
-	model1.add(BatchNormalization())	 
-	model1.add(MaxPool1D(2))
-	model1.add(Dropout(0.2))
-	
 	model1.add(Flatten())
 	
 	
 	model2 = Sequential()
 	model2.add(embedding_layer)
 # 	model2.add(GaussianNoise(1))
-	model2.add(Conv1D(filters = 16, kernel_size = 3, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
+	model2.add(Conv1D(filters = 16, kernel_size = 3, ))
 	model2.add(PReLU())
 	model2.add(BatchNormalization())
-	model2.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model2.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', ))
 	model2.add(BatchNormalization())
-	model2.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model2.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
 	model2.add(BatchNormalization())
 	model2.add(MaxPool1D(2))
-# 	model1.add(Dropout(0.1))
-	
-	model2.add(Conv1D(filters = 32, kernel_size = 4, activation='relu'))
-	model2.add(BatchNormalization())
-	model2.add(Conv1D(filters = 32, kernel_size = 4, activation='relu'))
-	model2.add(BatchNormalization())
-	model2.add(Conv1D(filters = 32, kernel_size = 4, activation='relu'))
-	model2.add(BatchNormalization())	 
-	model2.add(MaxPool1D(2))
-	model2.add(Dropout(0.2))
 	model2.add(Flatten())
 	
 	model3 = Sequential()
 	model3.add(embedding_layer)
 # 	model3.add(GaussianNoise(1))
-	model3.add(Conv1D(filters = 16, kernel_size = 4, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
+	model3.add(Conv1D(filters = 16, kernel_size = 5, ))
 	model3.add(PReLU())
 	model3.add(BatchNormalization())
-	model3.add(Conv1D(filters = 32, kernel_size = 4, activation='relu', kernel_regularizer=l2(0.01)))
+	model3.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', ))
 	model3.add(BatchNormalization())
-	model3.add(Conv1D(filters = 32, kernel_size = 4, activation='relu', kernel_regularizer=l2(0.01)))
+	model3.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
 	model3.add(BatchNormalization())
 	model3.add(MaxPool1D(2))
-# 	model1.add(Dropout(0.1))
-	
-	model3.add(Conv1D(filters = 32, kernel_size = 6, activation='relu'))
-	model3.add(BatchNormalization())
-	model3.add(Conv1D(filters = 32, kernel_size = 6, activation='relu'))
-	model3.add(BatchNormalization())
-	model3.add(Conv1D(filters = 32, kernel_size = 6, activation='relu'))
-	model3.add(BatchNormalization())	 
-	model3.add(MaxPool1D(2))
-	model3.add(Dropout(0.2))
 	model3.add(Flatten())
 	
+	model4 = Sequential()
+	model4.add(embedding_layer)
+# 	model4.add(GaussianNoise(1))
+	model4.add(Conv1D(filters = 16, kernel_size = 7, ))
+	model4.add(PReLU())
+	model4.add(BatchNormalization())
+	model4.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', ))
+	model4.add(BatchNormalization())
+	model4.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model4.add(BatchNormalization())
+	model4.add(MaxPool1D(2))
+	model4.add(Flatten())
 	
-	merged = Merge([model1, model2, model3], mode='concat')
+	model5 = Sequential()
+	model5.add(embedding_layer)
+# 	model5.add(GaussianNoise(1))
+	model5.add(Conv1D(filters = 16, kernel_size = 13, ))
+	model5.add(PReLU())
+	model5.add(BatchNormalization())
+	model5.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', ))
+	model5.add(BatchNormalization())
+	model5.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model5.add(BatchNormalization())
+	model5.add(MaxPool1D(2))
+	model5.add(Flatten())
+	
+	
+	model6 = Sequential()
+	model6.add(embedding_layer)
+# 	model6.add(GaussianNoise(1))
+	model6.add(Conv1D(filters = 16, kernel_size = 2, ))
+	model6.add(PReLU())
+	model6.add(BatchNormalization())
+	model6.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', ))
+	model6.add(BatchNormalization())
+	model6.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model6.add(BatchNormalization())
+	model6.add(MaxPool1D(2))
+# 	model6.add(Dropout(0.1))
+	model6.add(Flatten())
+	
+	model7 = Sequential()
+	model7.add(embedding_layer)
+# 	model7.add(GaussianNoise(1))
+	model7.add(Conv1D(filters = 16, kernel_size = 3, ))
+	model7.add(PReLU())
+	model7.add(BatchNormalization())
+	model7.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', ))
+	model7.add(BatchNormalization())
+	model7.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model7.add(BatchNormalization())
+	model7.add(MaxPool1D(2))
+# 	model7.add(Dropout(0.1))
+	model7.add(Flatten())
+	
+	model8 = Sequential()
+	model8.add(embedding_layer)
+# 	model8.add(GaussianNoise(1))
+	model8.add(Conv1D(filters = 16, kernel_size = 5,))
+	model8.add(PReLU())
+	model8.add(BatchNormalization())
+	model8.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', ))
+	model8.add(BatchNormalization())
+	model8.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model8.add(BatchNormalization())
+	model8.add(MaxPool1D(2))
+# 	model8.add(Dropout(0.1))
+	model8.add(Flatten())
+	
+	model9 = Sequential()
+	model9.add(embedding_layer)
+# 	model9.add(GaussianNoise(1))
+	model9.add(Conv1D(filters = 16, kernel_size = 7, ))
+	model9.add(PReLU())
+	model9.add(BatchNormalization())
+	model9.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', ))
+	model9.add(BatchNormalization())
+	model9.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model9.add(BatchNormalization())
+	model9.add(MaxPool1D(2))
+# 	model9.add(Dropout(0.1))
+	model9.add(Flatten())
+	
+	model10 = Sequential()
+	model10.add(embedding_layer)
+# 	model10.add(GaussianNoise(1))
+	model10.add(Conv1D(filters = 16, kernel_size = 13, ))
+	model10.add(PReLU())
+	model10.add(BatchNormalization())
+	model10.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', ))
+	model10.add(BatchNormalization())
+	model10.add(Conv1D(filters = 32, kernel_size = 3, activation='relu', kernel_regularizer=l2(0.01)))
+	model10.add(BatchNormalization())
+	model10.add(MaxPool1D(2))
+# 	model10.add(Dropout(0.1))
+	model10.add(Flatten())
+	
+	
+	merged = Merge([model1, model2, model3, model4, model5, model6, model7, model8, model9, model10, ], mode='concat')
 	model = Sequential()
 	model.add(merged)
 # 	model1.add(DropconnectDense(units=512, rate=0.15, activation='relu'))
 # 	model1.add(DropconnectDense(units=1024, rate=0.25, activation='sigmoid'))
 	
-	model.add(Dense(128, activation='relu', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.)))
-	model.add(Dropout(0.15))
+	model.add(Dense(128, activation='relu', ))
+# 	model.add(Dropout(0.15))
 	model.add(Dense(256, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.)))
 	model.add(Dropout(0.25))
 	
 	model.add(Dense(3, activation='softmax'))
 	
 # 	model.compile(loss='categorical_crossentropy', optimizer = Adam(lr=1e-4), metrics=["accuracy"])
-	model.compile(loss='categorical_crossentropy', optimizer = 'Adadelta', metrics=["accuracy"])
+	model.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
 	return model
 	
 def gen_model_class_1():
@@ -983,30 +1100,151 @@ def gen_model_class_2():
 	model.add(Conv1D(filters = 32, kernel_size = 2, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
 	model.add(PReLU())
 	model.add(BatchNormalization())
-	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu'))
 	model.add(BatchNormalization())
-	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
 	model.add(BatchNormalization())
 	model.add(MaxPool1D(2))
- 	model.add(Dropout(0.1))
+#  	model.add(Dropout(0.1))
+ 	
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+# 	model.add(BatchNormalization())	 
+# 	model.add(MaxPool1D(2))
+# 	model.add(Dropout(0.1))
 	
-	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
 	model.add(BatchNormalization())
-	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
-	model.add(BatchNormalization())
-	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
 	model.add(BatchNormalization())	 
 	model.add(MaxPool1D(2))
-	model.add(Dropout(0.2))
+	model.add(Dropout(0.1))
 	
 	model.add(Flatten())
-	model.add(Dense(128, activation='relu', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
-	model.add(Dropout(0.15))
+	model.add(Dense(128, activation='relu',))
+	model.add(Dropout(0.1))
 	model.add(Dense(256, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
 	model.add(Dropout(0.25))
 	
-	model.add(Dense(3, activation='softmax'))
-	model.compile(loss='categorical_crossentropy', optimizer = 'Adadelta', metrics=["accuracy"])
+	model.add(Dense(2, activation='softmax'))
+	model.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
+	return model
+def gen_model_class_3():
+	embedding_len = cfg.input_vocab_size / 2
+	
+	embedding_layer = Embedding(input_dim = cfg.input_vocab_size,  
+                            output_dim = embedding_len,  
+                            input_length=cfg.max_input_len,
+                            embeddings_initializer = 'glorot_uniform',
+#                             weights=[embedding_matrix],  
+                            trainable=True)
+	model = Sequential()
+	model.add(embedding_layer)
+# 	model1.add(GaussianNoise(1))
+	model.add(Conv1D(filters = 32, kernel_size = 2, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
+	model.add(PReLU())
+	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+#  	model.add(Dropout(0.1))
+ 	
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+# 	model.add(BatchNormalization())	 
+# 	model.add(MaxPool1D(2))
+# 	model.add(Dropout(0.1))
+	
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())	 
+	model.add(MaxPool1D(2))
+	model.add(Dropout(0.1))
+	
+	model.add(Flatten())
+	
+# 	model_extend = Sequential()
+# 	model_extend.add(Input(shape=(5,)))
+# 	model_extend.add(Dense(5, activation='relu',))
+	model_extend = Sequential()
+	model_extend.add(Dense(5, input_dim=5))
+
+	merged = Merge([model, model_extend], mode='concat')
+	
+	modelc = Sequential()
+	modelc.add(merged)
+	modelc.add(Dense(128, activation='relu',))
+	modelc.add(Dropout(0.1))
+	modelc.add(Dense(64, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
+	modelc.add(Dropout(0.25))
+	modelc.add(Dense(2, activation='softmax'))
+	modelc.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
+	return modelc
+
+def gen_model_class_4():
+	embedding_len = cfg.input_vocab_size / 2
+	
+	embedding_layer = Embedding(input_dim = cfg.input_vocab_size,  
+                            output_dim = embedding_len,  
+                            input_length=cfg.max_input_len,
+                            embeddings_initializer = 'glorot_uniform',
+#                             weights=[embedding_matrix],  
+                            trainable=True)
+	model = Sequential()
+	model.add(embedding_layer)
+# 	model1.add(GaussianNoise(1))
+	model.add(Conv1D(filters = 32, kernel_size = 2, input_shape=(embedding_len, cfg.input_classify_vocab_size)))
+	model.add(PReLU())
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+#  	model.add(Dropout(0.1))
+ 	
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+# 	model.add(BatchNormalization())	 
+# 	model.add(MaxPool1D(2))
+# 	model.add(Dropout(0.1))
+	
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+	model.add(BatchNormalization())
+# 	model.add(MaxPool1D(2))
+# 	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  ))
+# 	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())	 
+	model.add(MaxPool1D(2))
+	model.add(Dropout(0.1))
+	
+	model.add(Flatten())
+	model.add(Dense(128, activation='relu',))
+	model.add(Dropout(0.1))
+	model.add(Dense(256, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
+	model.add(Dropout(0.25))
+	
+	model.add(Dense(2, activation='softmax'))
+	model.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
 	return model
 	
 def gen_model_0():
@@ -1205,7 +1443,7 @@ def experiment_simple3():
 	
 def experiment_teaching1():
 	
-	data = np.load("../data/en_train.npz")
+	data = np.load("../data/train_cls1.npz")
 	x_t_c = data['x_t_c']
 	y_t = data['y_t']
 	
@@ -1242,17 +1480,32 @@ def experiment_classify():
 				batch_size=256, nb_epoch = 200)
 	
 def experiment_classify_char():
-	data = np.load("../data/en_train_classify.npz")
-	y_t = data['y_t']
+	y_t = data_process.load_numpy_data("../data/train_y_2class.npy")
 	
 	data = np.load("../data/en_train.npz")
 	x_t_c = data['x_t_c']
 
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=10000, random_state=0)
-	model = gen_model_class_2()
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=200000, random_state=0)
+	model = gen_model_class_4()
 	print(model.summary())
-	train_classify(model, "class_cnn_c", x_train, y_train, x_valid, y_valid, 
-			batch_size=256, nb_epoch = 200)
+	train_classify(model, "class_cnn_c4", x_train, y_train, x_valid, y_valid, 
+			batch_size=256, nb_epoch = 100)
+	
+def experiment_classify_char_and_extend():
+
+	y_t = data_process.load_numpy_data("../data/train_y_2class.npy")
+	
+	data = np.load("../data/en_train.npz")
+	x_t_c = data['x_t_c']
+	
+	x_t_e = data_process.load_numpy_data("../data/extend_features.npy")
+	
+	
+	x_train, x_valid, y_train, y_valid = train_test_split(np.hstack([x_t_c, x_t_e]), y_t, test_size=10, random_state=0)
+	model = gen_model_class_3()
+	print(model.summary())
+	train_classify_extend(model, "class_cnn_c3", x_train, y_train, x_valid, y_valid, 
+			batch_size=256, nb_epoch = 100)
 	
 def experiment_classify_frag():
 	data = np.load("../data/en_train_classify.npz")
@@ -1292,34 +1545,35 @@ def split_by_classifier(classifier, x_t_cls, x_t, df_test, y_t_cls=None, y_t=Non
 	cls_df_list = []
 	index0 = np.where(p_y==0)[0].tolist()
 	index1 = np.where(p_y==1)[0].tolist()
-	index2 = np.where(p_y==2)[0].tolist()
+# 	index2 = np.where(p_y==2)[0].tolist()
 	
 	x_list.append(x_t[index0])
 	x_list.append(x_t[index1])
-	x_list.append(x_t[index2])
+# 	x_list.append(x_t[index2])
 	
 	cls_df_list.append(df_test.iloc[index0])
 	cls_df_list.append(df_test.iloc[index1])
-	cls_df_list.append(df_test.iloc[index2])
+# 	cls_df_list.append(df_test.iloc[index2])
 	
 	cls_df_list[0]['p_new_class'] = 1
 	cls_df_list[1]['p_new_class'] = 2
-	cls_df_list[2]['p_new_class'] = 3
+# 	cls_df_list[2]['p_new_class'] = 3
 	
 	cls_y_list = []
 	if y_t_cls is not None:
 		cls_y_list.append(y_t_cls[index0])
 		cls_y_list.append(y_t_cls[index1])
-		cls_y_list.append(y_t_cls[index2])
+# 		cls_y_list.append(y_t_cls[index2])
 		
 	y_list = []
 	if y_t is not None:
 		y_list.append(y_t[index0])
 		y_list.append(y_t[index1])
-		y_list.append(y_t[index2])
+# 		y_list.append(y_t[index2])
 		
 	
 	return x_list, cls_df_list, cls_y_list, y_list
+
 
 def run_normalize():
 	df_test = pd.read_csv('../data/en_test.csv')
@@ -1327,11 +1581,13 @@ def run_normalize():
 	x_t_cls = test_feat['x_t_cls']
 	x_test = test_feat['x_t']
 	
-	mod_classifier = gen_model_class_0()
-	classifier = mod_classifier.load_weights("../model/class_cnn1_1_weights.24-0.0027-0.9992-0.0266-0.9958.hdf5")
+	
+	
+	mod_classifier = gen_model_class_2()
+	mod_classifier.load_weights("../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5")
 
 	
-	cls_x_list, cls_df_list, _, _ = split_by_classifier(classifier, x_t_cls, x_test, df_test)
+	cls_x_list, cls_df_list, _, _ = split_by_classifier(mod_classifier, x_t_cls, x_test, df_test)
 	
 	
 # 	nomalizer1 = loadModel("../model/nomalizer1.mod")
@@ -1341,38 +1597,51 @@ def run_normalize():
 # 	cls_list[2] = normalize(nomalizer1, cls_list[2])
 # 	cls_list[3] = normalize(nomalizer1, cls_list[3])
 	
-def run_evalute():
+def run_evalute_and_split():
 	df_test = pd.read_csv('../data/train_filted_classify.csv')
 	df_test['p_new_class'] = -1
-	test_feat = np.load('../data/en_train_classify.npz')
+# 	test_feat = np.load('../data/en_train_classify.npz')
+	y_t_cls = data_process.load_numpy_data('../data/train_y_2class.npy')
 	
-	x_t_cls = test_feat['x_t_cls']
-	y_t_cls = test_feat['y_t_cls']    
+	test_feat = np.load("../data/en_train.npz")
+	
+	x_t_cls = test_feat['x_t_c']
+	 
 	
 	test_feat = np.load('../data/en_train.npz')
 	x_t = test_feat['x_t']
 	y_t = test_feat['y_t']
 	
+	x_t_e = np.load('../data/extend_features.npy')
 	
-	mod_classifier = gen_model_class_0()
+# 	x_t_cls = [x_t_cls, x_t_e]
+	
+	mod_classifier = gen_model_class_2()
 	print(mod_classifier.summary())
-	mod_classifier.load_weights("../model/class_cnn1_1_weights.24-0.0027-0.9992-0.0266-0.9958.hdf5")
-	x_list, cls_df_list, cls_y_list, y_list = split_by_classifier(mod_classifier, x_t_cls, x_t, df_test, y_t_cls, y_t)
+	mod_classifier.load_weights("../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5")
+	x_list, cls_df_list, cls_y_list, y_list = split_by_classifier(mod_classifier, x_t_cls, np.hstack([x_t, x_t_cls]), df_test, y_t_cls, y_t)
 	
 	
-	classify_acc0 = len(cls_df_list[0][cls_df_list[0]['new_class']==cls_df_list[0]['p_new_class']]) / float(len(cls_df_list[0]))
-	classify_acc1 = len(cls_df_list[1][cls_df_list[1]['new_class']==cls_df_list[1]['p_new_class']]) / float(len(cls_df_list[1]))
-	classify_acc2 = len(cls_df_list[2][cls_df_list[2]['new_class']==cls_df_list[2]['p_new_class']]) / float(len(cls_df_list[2]))
+	correct_num1 = len(cls_df_list[0][cls_df_list[0]['new_class1']==1])
+	correct_num2 = len(cls_df_list[1][cls_df_list[1]['new_class1']==2])
+	classify_acc0 = correct_num1 / float(len(cls_df_list[0]))
+	classify_acc1 = correct_num2 / float(len(cls_df_list[1]))
+# 	classify_acc2 = len(cls_df_list[2][cls_df_list[2]['new_class']==cls_df_list[2]['p_new_class']]) / float(len(cls_df_list[2]))
 	
 	df_out = pd.concat(cls_df_list)
 	
-	classify_acc = len(df_out[df_out['new_class']==df_out['p_new_class']]) / float(len(df_out))
-	df_out_err = df_out[df_out['new_class']!=df_out['p_new_class']]
+	classify_acc = (correct_num1 + correct_num2) / float(len(df_out))
+	df_out_err = df_out[df_out['new_class1']!=df_out['p_new_class']]
 	
-	print "Total item num:%d, c1 num:%d, c2 num:%d, c3 num:%d, err num:%d"%(len(df_out), len(cls_df_list[0]), len(cls_df_list[1]), len(cls_df_list[2]), len(df_out_err))
-	print "Total classify acc:%f, c1 classify acc:%f, c2 classify acc:%f, c3 classify acc:%f"%(classify_acc, classify_acc0, classify_acc1, classify_acc2)
+	print "Total item num:%d, c1 num:%d, c2 num:%d, err num:%d"%(len(df_out), len(cls_df_list[0]), len(cls_df_list[1]), len(df_out_err))
+	print "Total classify acc:%f, c1 classify acc:%f, c2 classify acc:%f"%(classify_acc, classify_acc0, classify_acc1)
 	df_out.to_csv('../data/classified.csv', index=False)
 	df_out_err.to_csv('../data/classified_err.csv', index=False)
+	
+	cls_df_list[0].to_csv('../data/train_cls1.csv', index=False)
+	cls_df_list[1].to_csv('../data/train_cls2.csv', index=False)
+	np.savez("../data/train_cls1.npz", x_t = x_list[0][:, :cfg.max_input_len], x_t_c = x_list[0][:, cfg.max_input_len:], y_t=y_list[0])
+	np.savez("../data/train_cls2.npz", x_t = x_list[1][:, :cfg.max_input_len], x_t_c = x_list[1][:, cfg.max_input_len:], y_t=y_list[1])
 	
 def display_model():
 	model = gen_model_class_0()
@@ -1386,7 +1655,11 @@ if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
 # 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-	df = pd.read_csv('../data/en_train_filted_class.csv')
+# 	df = pd.read_csv('../data/en_train_filted_class.csv')
+# 	data_process.add_class_info('../data/en_train_filted_all.csv', '../data/en_train_filted_class.csv')
+# 	data_process.gen_train_feature(df)
+# 	data_process.gen_extend_features(df)
+# 	print len(df)
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
 #  	df_c1 = df[df['new_class'] == 1]
 #  	c1_cnt = df_c1['len'].value_counts().sort_values()
@@ -1397,15 +1670,16 @@ if __name__ == "__main__":
 #  	df_c3 = df[df['new_class'] == 3]
 #  	c3_cnt = df_c3['len'].value_counts().sort_values()
 #  	c3_cnt.to_csv('../data/c3_cnt.csv', index=True)
- 	
+ 	experiment_teaching1()
 #  	del df['len']
 #  	print 'saved cnt info.'
-	data_process.gen_train_feature(df)
+#  	data_process.gen_one2one_dict(df)
 	
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
-	experiment_teaching1()
-	
+# 	run_evalute()
+#  	run_evalute_and_split()
+# 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
 # 	t.add_arc(0, 1, 'b', 'B')
@@ -1421,5 +1695,7 @@ if __name__ == "__main__":
 # 	ps['word'] = se
 # 	print ps
 # 	df = pd.read_csv('../data/en_train_filted_class.csv') 
-# 	data_process.display_sentence(222035, df)
+# 	data_process.display_sentence(218309, df)
+# 	
+# 	data_process.display_sentence(110195, df)
 

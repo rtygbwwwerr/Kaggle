@@ -77,13 +77,114 @@ def extract_class_feature(data, is_normalized=False):
 	return fac[0]
 
 def extract_before_len_feature(data, is_normalized=False):
-	def q_val(val):
-		return len(str(val))
-	vals = data.apply(lambda x: q_val(x['before']), axis=1, raw=True)
-	if is_normalized:
-		vals = standardization(vals)
-	return vals
+# 	def q_val(val):
+# 		return len(str(val))
+# 	vals = data.apply(lambda x: q_val(x['before']), axis=1, raw=True)
+	N = len(data)
+	feat = []
+	for i in range(N):
+		before = str(data.at[i, 'before'])
+		if data.at[i, 'new_class'] == 0:
+			continue
+		feat.append([len(before)])
+	return np.array(feat)
 
+def extract_dot_feature(data, is_normalized=False):
+# 	vals = data['before'].apply(lambda x: str(x).count('.'))
+	N = len(data)
+	feat = []
+	for i in range(N):
+		before = str(data.at[i, 'before'])
+		if data.at[i, 'new_class'] == 0:
+			continue
+		feat.append([before.count('.')])
+	return np.array(feat)
+
+def extract_dot_around_feature(data, is_normalized=False):
+	
+	def cnt(x):
+		rets = re.findall('[0-9]+\.[0-9]+', x)
+		return len(rets)
+# 	vals = data['before'].apply(lambda x: cnt(str(x)))
+	N = len(data)
+	feat = []
+	for i in range(N):
+		before = str(data.at[i, 'before'])
+		if data.at[i, 'new_class'] == 0:
+			continue
+		feat.append([cnt(before)])
+	return np.array(feat)
+		
+def extract_is_digit_feature(data, is_normalized=False):
+	p = re.compile(r'^[-+]?[0-9]+\.?[0-9]+$')
+	def is_digit(x):
+		ret = p.match(x)
+		if ret is None:
+			return 0
+		else:
+			return 1
+	
+	N = len(data)
+	feat = []
+	for i in range(N):
+		before = str(data.at[i, 'before'])
+		if data.at[i, 'new_class'] == 0:
+			continue
+		feat.append([is_digit(before)])
+	return np.array(feat)
+
+def extract_to_around_feature(data, is_normalized=False):
+	N = len(data)
+	feat = []
+	for i in range(N):
+		flg = 0
+		before = data.at[i, 'before']
+		if data.at[i, 'new_class'] == 0:
+			continue
+		
+		token_id = data.at[i, 'token_id']
+		MaxToken = token_id
+		k = i + 1
+		while k < N:
+			token_id_c = data.at[k, 'token_id']
+			if token_id_c > token_id:
+				MaxToken = token_id_c
+				k = k + 1
+			else:
+				break
+			
+		if before != '-':
+			flg = 0
+		elif token_id == 0:
+			flg = 1
+		elif token_id == MaxToken:
+			flg = 2
+		else:
+			before_pre = str(data.at[i - 1, 'before'])
+			before_post = str(data.at[i + 1, 'before'])
+			if before_pre[-1].isdigit() and before_post[0].isdigit():
+				flg = 3
+			elif before_pre[-1].isdigit():
+				flg = 4
+			elif before_post[0].isdigit():
+				flg = 5
+		feat.append([flg])
+	return np.array(feat)
+
+def gen_extend_features(data):
+	feat = []
+	feat.append(extract_before_len_feature(data))
+	feat.append(extract_dot_feature(data))
+	feat.append(extract_dot_around_feature(data))
+	feat.append(extract_is_digit_feature(data))
+	feat.append(extract_to_around_feature(data))
+	out_feature = np.hstack(feat)
+	print "feat size:" + str(out_feature.shape)
+	print 'Saved into ../data/extend_features.npy'
+	save_numpy_data('../data/extend_features.npy', out_feature)
+	np.savetxt("../data/extend_features.txt", out_feature)
+	
+	
 # def extract_before_feature(data, is_normalized=False):
 # 	
 # 	def context_window_transform(data, pad_size):
@@ -627,7 +728,7 @@ def gen_test_feature(df):
 	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
 def gen_train_feature(df):
 
-# 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
+## 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
 	y_t_cls = df['new_class'].values
 	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
 	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
@@ -636,6 +737,12 @@ def gen_train_feature(df):
 	index = np.where(y_t_cls!=0)[0].tolist()
 	y_t_cls = y_t_cls[index]
 	y_t_cls = y_t_cls - 1
+	
+	##combine the class 1 and class2 as class0, change the class3 to class1
+	y_t_2cls = y_t_cls - 1
+	y_t_2cls = np.where(y_t_2cls > 0, 1, 0)
+	y_t_2cls = to_categorical(y_t_2cls)
+	
 	y_t_cls = to_categorical(y_t_cls)
 	df_out = df.iloc[index]
 	print(x_t.shape[0])
@@ -644,11 +751,11 @@ def gen_train_feature(df):
 	print(y_t_cls.shape[0])
 	print len(df_out)
 	
-	df_out.to_csv('../data/train_filted_classify.csv', index=False)
-	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
+ 	df_out.to_csv('../data/train_filted_classify.csv', index=False)
+ 	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
 # 	np.savez("../data/en_train_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
-	np.savez("../data/en_train.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
-	
+ 	np.savez("../data/en_train.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+	save_numpy_data("../data/train_y_2class.npy", y_t_2cls)
 def down_sampling(x, y):
 	del_index = []
 	for i, y_sub in enumerate(y):
@@ -1067,10 +1174,43 @@ def add_class_info(in_path, out_path):
 			cls = 3
 		
 		return cls
-	
+	def get_new_class1(row):
+		cls = -1
+		if (row['before'] in cfg.dic_constant):
+			cls = 0
+		elif row['class'] in cfg.class1 or row['class'] in cfg.class2:
+			cls = 1
+		elif row['class'] in cfg.class3:
+			cls = 2
+		
+		return cls
 	df['new_class'] = df.apply(lambda x : get_new_class(x), axis=1)
+	df['new_class1'] = df.apply(lambda x : get_new_class1(x), axis=1)
 	df.to_csv(out_path, index=False)
 	print "saved classify data"
+
+def gen_one2one_dict(df):
+	before_after_dict = {}
+	def add_to_dic(row):
+		key = str(row['before'])
+		val = str(row['after'])
+		if before_after_dict.has_key(key):
+			vals = before_after_dict[key]
+			if val not in vals:
+				vals.append(val)
+		else:
+			vals = []
+			vals.append(val)
+			before_after_dict[key] = vals
+	df.apply(lambda row: add_to_dic(row), axis=1)
+	
+	for k,v in before_after_dict.items():
+		if len(v) != 1:
+			before_after_dict.pop(k)
+	
+	print "saved one2one dict size is:%d "%(len(before_after_dict))
+	
+	dump(before_after_dict, "../data/one2one_dict")
 	
 if __name__ == "__main__":
 	

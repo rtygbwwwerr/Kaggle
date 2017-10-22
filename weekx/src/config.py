@@ -4,6 +4,7 @@ class Config(object):
 	dic_input_char2i = {}
 	dic_output_word2i = {}
 	dic_output_i2word ={}
+	dic_one2one = {}
 	output_vocab_size = 0
 	dic_constant = None
 	input_vocab_size = 0
@@ -17,6 +18,7 @@ class Config(object):
 		print 'len w2i:%d, len i2w:%d'%(len(Config.dic_output_word2i), len(Config.dic_output_i2word))
 		Config.dic_constant = data_process.load_constant_dict()
 		print 'input constant word num:%d'%(len(Config.dic_constant))
+		Config.dic_one2one = data_process.load('../data/one2one_dict')
 		
 	class1 = set(['PUNCT', 'PLAIN'])
 	class2 = set(['VERBATIM', 'LETTERS', 'ELECTRONIC'])
