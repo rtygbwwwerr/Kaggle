@@ -707,25 +707,22 @@ def gen_classify_feature(df):
 		
 def gen_test_feature(df):
 	y_t_cls = df['new_class'].values
-	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
-	x_t_cls = extract_char_feature(df)
+	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
+	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
 	x_t = extract_2gram_feature(df)
-	
 	index = np.where(y_t_cls!=0)[0].tolist()
-	#filter the non-change items
-# 	y_t_cls = y_t_cls[index]
-# 	print(y_t_cls.shape[0])
-# 	y_t_cls = y_t_cls - 1
-# 	x_t = x_t[index]
-	print(x_t.shape[0])
-	print(x_t_cls.shape[0])
-# 	y_t_cls = to_categorical(y_t_cls)
 	
+	##combine the class 1 and class2 as class0, change the class3 to class1
 	df_out = df.iloc[index]
+	print(x_t.shape[0])
+# 	print(x_t_cls.shape[0])
+	print(y_t_cls.shape[0])
 	print len(df_out)
-	df_out.to_csv('../data/test_classify.csv', index=False)
-	np.savez("../data/en_test.npz", x_t_cls = x_t_cls, x_t = x_t)
-	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
+	
+ 	df_out.to_csv('../data/test_filted_classify.csv', index=False)
+	np.savez("../data/en_test_classify.npz", x_t = x_t_cls)
+	np.savez("../data/en_test.npz", x_t_c = x_t_c, x_t = x_t)
+# 	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
 def gen_train_feature(df):
 
 ## 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
@@ -1160,6 +1157,11 @@ def add_class_info(in_path, out_path):
 	df = pd.read_csv(in_path)
 # 	before_after_dict = gen_before_after_dict(df)
 	
+	def get_new_class0(row):
+		cls = -1
+		if (row['before'] in cfg.dic_constant):
+			cls = 0
+		return cls
 	
 	def get_new_class(row):
 		cls = -1
@@ -1184,11 +1186,21 @@ def add_class_info(in_path, out_path):
 			cls = 2
 		
 		return cls
-	df['new_class'] = df.apply(lambda x : get_new_class(x), axis=1)
-	df['new_class1'] = df.apply(lambda x : get_new_class1(x), axis=1)
+	if 'class' in df.columns.values.tolist():
+		df['new_class'] = df.apply(lambda x : get_new_class(x), axis=1)
+		df['new_class1'] = df.apply(lambda x : get_new_class1(x), axis=1)
+	else:
+		df['new_class'] = df.apply(lambda x : get_new_class0(x), axis=1)
+		df['new_class1'] = df.apply(lambda x : get_new_class0(x), axis=1)
 	df.to_csv(out_path, index=False)
-	print "saved classify data"
+	print "saved classify data:" + out_path
 
+def gen_super_long_items(df, base_len, out_csv_file):
+	df['len'] = df['before'].apply(lambda x:len(str(x)))
+	df_out = df[df['len'] > base_len]
+	df_out.to_csv(out_csv_file, index=False)
+	print "saved long tokens %d in file:%s"%(len(df_out), out_csv_file)
+	
 def gen_one2one_dict(df):
 	before_after_dict = {}
 	def add_to_dic(row):
