@@ -1778,7 +1778,7 @@ if __name__ == "__main__":
 #  	df_c3 = df[df['new_class'] == 3]
 #  	c3_cnt = df_c3['len'].value_counts().sort_values()
 #  	c3_cnt.to_csv('../data/c3_cnt.csv', index=True)
-	experiment_teaching1(cls_id=2, pre_train_model_file = "../model/teach_l1_l1_c2_weights.45-0.0515-0.9853-0.0514-0.9852.hdf5")
+	experiment_teaching1(cls_id=2, pre_train_model_file = "../model/teach_l1_l1_c2_weights.99-0.0097-0.9975-0.0098-0.9975.hdf5")
 #  	del df['len']
 #  	print 'saved cnt info.'
 #  	data_process.gen_one2one_dict(df)
