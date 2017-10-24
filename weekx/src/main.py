@@ -1676,12 +1676,12 @@ def decode_sequence(encoder, decoder, X, beam_size=1):
 	stop_condition = False
 	decoded_sentence = []
 	while not stop_condition:
-		output_tokens, h, c = decoder.predict([target_seq] + states_value)
+		output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
 		
 		# Sample a token
-		sampled_token_index = np.argmax(output_tokens[0, -1, :])
+		sampled_token_index = np.argmax(output_tokens_prob[0, -1, :])
 		# beam search
-		arr = output_tokens[0, -1, :]
+		arr = output_tokens_prob[0, -1, :]
 		result = heapq.nlargest(beam_size, enumerate(arr),itemgetter(1))
 		#extract the n maxmium indies
 		max_index = map(lambda x:x[0], result)
@@ -1704,6 +1704,55 @@ def decode_sequence(encoder, decoder, X, beam_size=1):
 		states_value = [h, c]
 	
 	return " ".join(decoded_sentence)
+
+def search_path_viterbi(decoder, init_state, beam_size):
+	# Generate empty target sequence of length 1.
+	target_seq = np.zeros((1, 1, cfg.output_vocab_size))
+	# Populate the first character of target sequence with the start character.
+	target_seq[0, 0, cfg.dic_output_word2i[cfg.start_flg]] = 1.
+	decoded_sentence = []
+	states_value = init_state
+	best_score = np.zeros((cfg.output_vocab_size))
+	best_edge = np.zeros((cfg.output_vocab_size))
+	best_edge[0] = cfg.dic_output_word2i[cfg.start_flg]
+	for t in range(1, cfg.max_output_len):
+		output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
+		log_prob = -np.log10(output_tokens_prob)
+		best_score[t] = float("inf")
+		for edge in range(cfg.output_vocab_size):
+			 score = best_score[t - 1] + log_prob[0, -1, edge]
+			 if score < best_score[t]:
+			 	best_score[t] = score
+			 	best_edge[t] = edge
+		
+	while True:
+		output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
+		
+		# Sample a token
+		sampled_token_index = np.argmax(output_tokens_prob[0, -1, :])
+		# beam search
+		arr = output_tokens_prob[0, -1, :]
+		result = heapq.nlargest(beam_size, enumerate(arr),itemgetter(1))
+		#extract the n maxmium indies
+		max_index = map(lambda x:x[0], result)
+		
+		sampled_token = cfg.dic_output_i2word[sampled_token_index]
+		
+		if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg:
+			decoded_sentence.append(sampled_token)
+		
+		# Exit condition: either hit max length
+		# or find stop character.
+		if (sampled_token == cfg.end_flg or sampled_token == cfg.pad_flg or len(decoded_sentence) > cfg.max_output_len):
+			stop_condition = True
+		
+		# Update the target sequence (of length 1).
+		target_seq = np.zeros((1, 1, cfg.output_vocab_size))
+		target_seq[0, 0, sampled_token_index] = 1.
+		
+		# Update states
+		states_value = [h, c]
+	
 
 def run_evalute_and_split():
 	df_test = pd.read_csv('../data/train_filted_classify.csv')
@@ -1778,7 +1827,7 @@ if __name__ == "__main__":
 #  	df_c3 = df[df['new_class'] == 3]
 #  	c3_cnt = df_c3['len'].value_counts().sort_values()
 #  	c3_cnt.to_csv('../data/c3_cnt.csv', index=True)
-	experiment_teaching1(cls_id=2, pre_train_model_file = "../model/teach_l1_l1_c2_weights.99-0.0097-0.9975-0.0098-0.9975.hdf5")
+	experiment_teaching1(cls_id=2, pre_train_model_file = "../model/teach_l1_l1_c2_weights.144-0.0060-0.9984-0.0062-0.9984.hdf5")
 #  	del df['len']
 #  	print 'saved cnt info.'
 #  	data_process.gen_one2one_dict(df)
