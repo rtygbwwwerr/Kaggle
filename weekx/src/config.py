@@ -8,6 +8,7 @@ class Config(object):
 	output_vocab_size = 0
 	dic_constant = None
 	input_vocab_size = 0
+	vocab_size = 0
 	@staticmethod
 	def init():
 		Config.dic_input_char2i = data_process.load_dict_in('../data/input_alpha_table')
@@ -23,7 +24,7 @@ class Config(object):
 	class1 = set(['PUNCT', 'PLAIN'])
 	class2 = set(['VERBATIM', 'LETTERS', 'ELECTRONIC'])
 	class3 = set(['FRACTION','TIME','TELEPHONE','DIGIT','MONEY','DECIMAL','ORDINAL','MEASURE','CARDINAL','DATE', 'ADDRESS'])
-	batch_size = 85
+	batch_size = 256
 	max_num_features = 31
 # 	max_input_len = 1120,550,280
 	max_input_len = 80
@@ -31,7 +32,7 @@ class Config(object):
 	max_left_input_len = 50
 	max_mid_input_len = 50
 	max_right_input_len = 50
-	
+	embedding_size = 50
 	dim_left_embedding = 50
 	dim_right_embedding = 50
 	dim_mid_embedding = 50
@@ -39,11 +40,15 @@ class Config(object):
 	input_classify_vocab_size = 101
 # 	max_output_len = 1850,411
 	max_output_len = 111
+	max_output_len_decode = max_output_len
 	max_token_char_num = 40
 	word_vec_len = 255
+	max_grad_norm = 5
+	learning_rate = 1e-2
 	
-
 	input_hidden_dim = 512
+	encoder_hidden_size = 256
+	decoder_hidden_size = 280
 	space_letter = 0
 # 	boundary_word = -3
 	pad_size = 1
@@ -81,6 +86,51 @@ class Config(object):
 	l2_lambda = 0.0001
 	conv_depth = 32 # use 32 kernels in both convolutional layers
 	kernel_size = 3
+	
+	
+	data_args_train_no_classify2 = {'df_test':'../data/train_filted_classify.csv',
+					   'feat_classify':'../data/en_train_classify.npz',
+					   'feat_normalization':'../data/en_train.npz',
+					   'model_classify':None,
+					   'model_normal':["../checkpoints/l1_l1_c2_weights.39-0.1023-0.9729-0.0981-0.9735.hdf5"],
+					   'test_ret_file':'../data/en_train_test_ret.csv',
+					   'test_ret_file_err':'../data/en_train_test_ret_err.csv',
+					   'ret_file':'../data/en_train_ret.csv',
+					   'sub_file':'../data/en_train_submission.csv',
+					   'origin_file':"../data/en_train_filted_class.csv",}
+	
+	data_args_train_no_classify = {'df_test':'../data/train_filted_classify.csv',
+					   'feat_classify':'../data/en_train_classify.npz',
+					   'feat_normalization':'../data/en_train.npz',
+					   'model_classify':None,
+					   'model_normal':["../model/g1_g1_c0_weights.37-0.0142-0.9962-0.0127-0.9966.hdf5"],
+					   'test_ret_file':'../data/en_train_test_ret.csv',
+					   'test_ret_file_err':'../data/en_train_test_ret_err.csv',
+					   'ret_file':'../data/en_train_ret.csv',
+					   'sub_file':'../data/en_train_submission.csv',
+					   'origin_file':"../data/en_train_filted_class.csv",}
+	data_args_train = {'df_test':'../data/train_filted_classify.csv',
+					   'feat_classify':'../data/en_train_classify.npz',
+					   'feat_normalization':'../data/en_train.npz',
+					   'model_classify':"../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5",
+					   'model_normal':["../model/teach_l1_l1_c1_weights.149-0.0022-0.9994-0.0020-0.9995.hdf5", "../model/teach_l1_l1_c2_weights.188-0.0045-0.9988-0.0048-0.9988.hdf5"],
+					   'test_ret_file':'../data/en_train_test_ret.csv',
+					   'test_ret_file_err':'../data/en_train_test_ret_err.csv',
+					   'ret_file':'../data/en_train_ret.csv',
+					   'sub_file':'../data/en_train_submission.csv',
+					   'origin_file':"../data/en_train_filted_class.csv",}
+	
+	data_args_test = {'df_test':'../data/test_filted_classify.csv',
+					   'feat_classify':'../data/en_test_classify.npz',
+					   'feat_normalization':'../data/en_test.npz',
+					   'model_classify':"../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5",
+					   'model_normal':["../model/teach_l1_l1_c1_weights.149-0.0022-0.9994-0.0020-0.9995.hdf5", "../model/teach_l1_l1_c2_weights.188-0.0045-0.9988-0.0048-0.9988.hdf5"],
+					   'test_ret_file':'../data/en_train_test_ret.csv',
+					   'test_ret_file_err':None,
+					   'ret_file':'../data/en_test_ret.csv',
+					   'sub_file':'../data/en_submission.csv',
+					   'origin_file':"../data/en_test_class.csv",}
+	
 	dic_month = {"Jan":'january','Feb': 'february','Mar': 'march','Apr': 'april','May': 'may',
 			'Jun': 'june','Jul': 'july','Jy': 'july','Aug': 'august','Sep': 'september',
 			'Sept': 'september','Oct': 'october','Nov': 'november','Dec' : 'december',

@@ -4,10 +4,10 @@ import numpy as np
 import fst
 from keras.datasets import imdb
 from keras.models import Sequential
-from keras.optimizers import Adam
-from keras.layers import Input, Dense, Masking, Merge
+from keras.optimizers import Adam, RMSprop
+from keras.layers import Input, Dense, Masking, Merge, Permute
 from keras.layers import LSTM, GRU
-from keras.layers.core import Reshape
+from keras.layers.core import Reshape,Activation
 from keras.layers.noise import GaussianNoise
 from keras.layers import Dropout, Flatten, Conv1D, Conv2D, MaxPool1D, MaxPool2D, BatchNormalization
 from keras.layers.embeddings import Embedding
@@ -21,7 +21,6 @@ import keras
 from keras.constraints import maxnorm
 from keras.regularizers import l2
 import seq2seq
-from seq2seq.models import AttentionSeq2Seq, Seq2Seq
 import time
 from config import Config as cfg
 from scipy import sparse
@@ -37,10 +36,14 @@ from bokeh.util.session_id import random
 from keras.layers.wrappers import Bidirectional
 import heapq
 from operator import itemgetter
+from beam_search import beam_search
+from keras.layers import merge
+import model_maker
 
 from vis.optimizer import Optimizer
 
 from sklearn.cross_validation import train_test_split
+from __builtin__ import str
 cfg.init()
 
 
@@ -293,6 +296,32 @@ def generator_teaching_onehot(X, y, batch_size=128, shuffle=True):
 				np.random.shuffle(sample_index)
 			counter = 0
 			
+def generator_onehot(X, y, batch_size=128, shuffle=True):
+	number_of_batches = np.ceil(X.shape[0]/batch_size)
+	counter = 0
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+	while True:
+		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+		X_batch = np.zeros((batch_size, X.shape[1], cfg.input_vocab_size))
+		y_batch = np.zeros((batch_size, y.shape[1], cfg.output_vocab_size))
+		# reshape X to be [samples, time steps, features]
+		for i, j in enumerate(batch_index):
+# 			X_batch[i,:,:] = np.transpose(X[j].toarray())
+			for t in range(X.shape[1]):
+ 				X_batch[i,t,X[j, t]] = 1.0
+			for t in range(y.shape[1]):
+				y_batch[i,t,y[j, t]] = 1.0
+
+		# reshape y to be [samples, time steps, features]	
+# 		X_decode_batch = np.reshape(X_decode_batch, (X_decode_batch.shape[0], X_decode_batch.shape[1], 1))	
+		counter += 1
+		yield X_batch, y_batch
+		if (counter == number_of_batches):
+			if shuffle:
+				np.random.shuffle(sample_index)
+			counter = 0	
 			
 def reshape_data(X, y):
 	X_out = np.zeros((X.shape[0], X.shape[1], cfg.input_vocab_size))
@@ -349,6 +378,19 @@ def reshape_data_teaching_onehot(X, y):
 					
 	return X_out, X_d_out, y_out
 
+def reshape_data_onehot(X, y):
+	X_out = np.zeros((X.shape[0], X.shape[1], cfg.input_vocab_size))
+	for i in range(X.shape[0]):
+		for t in range(X.shape[1]):
+			X_out[i,t,X[i,t]] = 1.0
+	
+	y_out = np.zeros((y.shape[0], y.shape[1], cfg.output_vocab_size))
+	for i in range(y.shape[0]):
+		for t in range(y.shape[1]):
+			y_out[i,t,y[i,t]] = 1.0
+					
+	return X_out, y_out
+
 def train_teaching(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 100):
 	path = '../data/'
 	# reshape X to be [samples, time steps, features]
@@ -376,7 +418,7 @@ def train_teaching(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, bat
 			    		callbacks=[board, checkpointer])
 	print 'Training time', time.time() - start_time
 	# evaluate network
-# 	decode_sequence(X_valid, Y_valid, extend_args)
+# 	decode_sequence_teach(X_valid, Y_valid, extend_args)
 	
 	score = model.evaluate(X_valid, Y_valid, batch_size)
 	p_y = model.predict(X_valid, batch_size, verbose=0)
@@ -417,10 +459,50 @@ def train_teaching_onehot(model, log_dir, ret_file_head, X_train, Y_train, X_val
 			    		initial_epoch=initial_epoch)
 	print 'Training time', time.time() - start_time
 	# evaluate network
-# 	decode_sequence(X_valid, Y_valid, extend_args)
+# 	decode_sequence_teach(X_valid, Y_valid, extend_args)
 	
 	score = model.evaluate([X_valid, X_d_vaild], Y_valid, batch_size)
 	p_y = model.predict([X_valid, X_d_vaild], batch_size, verbose=0)
+	out_list = get_predict_list(p_y)
+	out_list = format_out_list(out_list)
+# 	output_to_csv(out_list, df_valid, path + ret_file_head + '.csv')
+	print out_list
+# 	val = np.max(p_y, axis=2)
+# 	print val
+	print('Test logloss:', score)
+
+def train_onehot(model, log_dir, ret_file_head, X_train, Y_train, X_valid, Y_valid, initial_epoch, batch_size=128, nb_epoch = 100):
+
+	# reshape X to be [samples, time steps, features]
+# 	X_valid = np.reshape(X_valid, (X_valid.shape[0], X_valid.shape[1], 1))
+# 	Y_valid = np.reshape(Y_valid, (Y_valid.shape[0], Y_valid.shape[1], 1))
+	X_valid, Y_valid = reshape_data_onehot(X_valid, Y_valid)
+# 	print X_train.getnnz()
+# 	print X_train.shape[0]
+# 	print X_train.shape[1]
+
+	board = TensorBoard(log_dir=log_dir, histogram_freq=0, write_graph=True,
+				 write_images=True, embeddings_freq=0, 
+				 embeddings_layer_names=None, embeddings_metadata=None)
+	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
+	checkpointer = ModelCheckpoint(monitor="acc", filepath=check_file, verbose=1, save_best_only=False)
+	# start training
+	start_time = time.time()
+	samples_per_epoch = int(math.ceil(X_train.shape[0] / float(batch_size)))
+#  	samples_per_epoch = batch_size
+	model.fit_generator(generator=generator_onehot(X_train, Y_train, batch_size, False), 
+	                    samples_per_epoch = samples_per_epoch, 
+	                    nb_epoch = nb_epoch, 
+	                    verbose=1,
+			    	    validation_data=(X_valid, Y_valid),
+			    		callbacks=[board, checkpointer], 
+			    		initial_epoch=initial_epoch)
+	print 'Training time', time.time() - start_time
+	# evaluate network
+# 	decode_sequence_teach(X_valid, Y_valid, extend_args)
+	
+	score = model.evaluate(X_valid, Y_valid, batch_size)
+	p_y = model.predict(X_valid, batch_size, verbose=0)
 	out_list = get_predict_list(p_y)
 	out_list = format_out_list(out_list)
 # 	output_to_csv(out_list, df_valid, path + ret_file_head + '.csv')
@@ -674,43 +756,35 @@ def output_to_csv(after_list, df, file="../data/test_ret.csv"):
 	print 'Saved result in file:%s'%(file)
 	
 def get_predict_list(predict_y):
-	out_list = []
 	predict_y = np.argmax(predict_y, axis=2)
 	out_list = arrs_to_sens(predict_y)
-# 	for i in range(predict_y.shape[0]):
-# 		out = []
-# 		for j in range(predict_y.shape[1]):
-# 			ind = predict_y[i, j]
-# 			
-# 			if ind != cfg.pad_flg_index:
-# 				out.append(cfg.dic_output_i2word[ind])
-# 		out_list.append(out)
+
 	return out_list
 
 
 	
 	
 
-def gen_model_2(depth=4, dropout=0.3):
-	model = AttentionSeq2Seq(input_dim=cfg.input_vocab_size, 
+def gen_model_2(depth=1, dropout=0.3):
+	model = model_maker.make_AttentionSeq2Seq(input_dim=cfg.input_vocab_size, 
 							input_length=cfg.max_input_len, 
 							hidden_dim=cfg.input_hidden_dim, 
 							output_length=cfg.max_output_len, 
 							output_dim=cfg.output_vocab_size, 
 							dropout = dropout,
 							depth = depth)
-	model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+	model.compile(loss='categorical_crossentropy', optimizer=RMSprop(lr=0.01), metrics=['accuracy'])
 	return model
 
 
-def gen_model_3(depth=3, dropout=0.3, peek=True, teacher_force=False):
-	model = Seq2Seq(batch_input_shape=(None, cfg.max_input_len, cfg.input_vocab_size),
-						 hidden_dim=cfg.input_hidden_dim, 
+def gen_model_3(depth=1, dropout=0.3, peek=True, teacher_force=True):
+	model = model_maker.make_Seq2Seq(batch_input_shape=(None, cfg.max_input_len, cfg.input_vocab_size),
+						 hidden_dim=cfg.input_vocab_size, 
 					 	output_length=cfg.max_output_len,
 					  	output_dim=cfg.output_vocab_size, 
 					  	depth=depth, teacher_force=teacher_force, dropout=dropout,
 					 	peek=peek)
-	model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 def gen_model_4():
 	encoder_inputs = Input(shape=(None, cfg.input_vocab_size))
@@ -740,8 +814,9 @@ def gen_model_4():
 	out = Dense(cfg, 
 		kernel_initializer='glorot_uniform', 
 		kernel_regularizer=l2(cfg.l2_lambda), 
-		activation='softmax')(drop) # Output softmax layer	
-def gen_model_teaching_0():
+		activation='softmax')(drop) # Output softmax layer
+			
+def gen_model_teaching_LSTM():
 # 	embedding_len = cfg.input_vocab_size / 2
 # 	embedding_layer_en = Embedding(input_dim = cfg.input_vocab_size,  
 #                             output_dim = embedding_len,  
@@ -785,6 +860,139 @@ def gen_model_teaching_0():
 	# `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
 	model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
 	model.compile(optimizer='Adadelta', loss='categorical_crossentropy', metrics=['accuracy'])
+# 	extend_args = {'encoder_inputs':encoder_inputs, "encoder_states":encoder_states, "decoder_inputs":decoder_inputs,
+# 				   'decoder_lstm':decoder_lstm, 'decoder_dense':decoder_dense }
+	return model
+
+# def attention_3d_block(inputs):
+# 	# inputs.shape = (batch_size, time_steps, input_dim)
+# 	input_dim = int(inputs.shape[2])
+# 	a = Permute((2, 1))(inputs)
+# 	a = Reshape((input_dim, TIME_STEPS))(a) # this line is not useful. It's just to know which dimension is what.
+# 	a = Dense(TIME_STEPS, activation='softmax')(a)
+# 	if SINGLE_ATTENTION_VECTOR:
+# 		a = Lambda(lambda x: K.mean(x, axis=1), name='dim_reduction')(a)
+# 		a = RepeatVector(input_dim)(a)
+# 	a_probs = Permute((2, 1), name='attention_vec')(a)
+# 	output_attention_mul = merge([inputs, a_probs], name='attention_mul', mode='mul')
+# 	return output_attention_mul
+# 
+# 
+# def model_attention_applied_after_lstm():
+# 	inputs = Input(shape=(TIME_STEPS, INPUT_DIM,))
+# 	lstm_units = 32
+# 	lstm_out = LSTM(lstm_units, return_sequences=True)(inputs)
+# 	attention_mul = attention_3d_block(lstm_out)
+# 	attention_mul = Flatten()(attention_mul)
+# 	output = Dense(1, activation='sigmoid')(attention_mul)
+# 	model = Model(input=[inputs], output=output)
+# 	return model
+
+def gen_model_teaching_attention():
+
+	# Define an input sequence and process it.
+ 	encoder_inputs = Input(shape=(cfg.max_input_len, cfg.input_vocab_size))
+#  	input_vec_en = embedding_layer_en(encoder_inputs)
+#  	reshaper_en = Reshape((cfg.max_input_len, embedding_len))
+#  	input_vec_en = reshaper_en(input_vec_en)
+ 	
+	encoder = LSTM(cfg.input_vocab_size, return_state=True, return_sequences=True)
+	state_out, state_h, state_c = encoder(encoder_inputs)
+	
+	attention_layer_o = Dense(cfg.max_input_len, activation='softmax')
+	out = Permute((2, 1))(state_out)
+	out = Reshape((cfg.input_vocab_size, cfg.max_input_len))(out)
+	out = attention_layer_o(out)
+	w_state_o = Permute((2, 1), name='attention_vec')(out)
+	output_attention_o = merge([state_out, w_state_o], name='attention_mul', mode='mul')
+	
+	# We discard `encoder_outputs` and only keep the states.
+	encoder_states = [state_h, state_c]
+	
+	# Set up the decoder, using `encoder_states` as initial state.
+	decoder_inputs = Input(shape=(cfg.max_output_len, cfg.output_vocab_size))
+	# We set up our decoder to return full output sequences,
+	# and to return internal states as well. We don't use the
+	# return states in the training model, but we will use them in inference.
+	
+	decoder_lstm = LSTM(cfg.input_vocab_size, return_sequences=True, return_state=True)
+	decoder_outputs, _, _ = decoder_lstm([output_attention_o, decoder_inputs], initial_state=encoder_states)
+	decoder_dense = Dense(cfg.output_vocab_size, activation='softmax')
+	decoder_outputs = decoder_dense(decoder_outputs)
+	
+	# Define the model that will turn
+	# `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
+	model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
+
+
+
+# 	model = model_maker.make_attentionSeq2Seq(input_dim=cfg.input_vocab_size, 
+# 							input_length=cfg.max_input_len, 
+# 							hidden_dim=cfg.input_vocab_size, 
+# 							output_length=cfg.max_output_len, 
+# 							output_dim=cfg.output_vocab_size, 
+# 							bidirectional=False,
+# 							dropout = 0.0,
+# 							depth = 1)
+	
+# 	model = model_maker.make_Seq2Seq(batch_input_shape=(None, cfg.max_input_len, cfg.input_vocab_size),
+# 						 hidden_dim=cfg.input_vocab_size, 
+# 					 	output_length=cfg.max_output_len,
+# 					  	output_dim=cfg.output_vocab_size, 
+# 					  	depth=1, teacher_force=True,
+# 					 	peek=True)
+	
+	model.compile(optimizer='Adadelta', loss='categorical_crossentropy', metrics=['accuracy'])
+	
+	
+	
+	
+	return model
+
+def gen_model_teaching_GRU():
+# 	embedding_len = cfg.input_vocab_size / 2
+# 	embedding_layer_en = Embedding(input_dim = cfg.input_vocab_size,  
+#                             output_dim = embedding_len,  
+#                             input_length=cfg.max_input_len,
+#                             embeddings_initializer = 'glorot_uniform',
+# #                             weights=[embedding_matrix],  
+#                             trainable=True)
+# 	
+# 	embedding_layer_de = Embedding(input_dim = cfg.output_vocab_size,  
+#                             output_dim = embedding_len,  
+#                             input_length=cfg.max_output_len,
+#                             embeddings_initializer = 'glorot_uniform',
+# #                             weights=[embedding_matrix],  
+#                             trainable=True)
+	# Define an input sequence and process it.
+ 	encoder_inputs = Input(shape=(cfg.max_input_len, cfg.input_vocab_size))
+#  	input_vec_en = embedding_layer_en(encoder_inputs)
+#  	reshaper_en = Reshape((cfg.max_input_len, embedding_len))
+#  	input_vec_en = reshaper_en(input_vec_en)
+ 	
+	encoder = GRU(cfg.input_vocab_size, return_state=True)
+	state_h, state_c = encoder(encoder_inputs)
+	# We discard `encoder_outputs` and only keep the states.
+	encoder_states = state_h
+	
+	# Set up the decoder, using `encoder_states` as initial state.
+	decoder_inputs = Input(shape=(cfg.max_output_len, cfg.output_vocab_size))
+	# We set up our decoder to return full output sequences,
+	# and to return internal states as well. We don't use the
+	# return states in the training model, but we will use them in inference.
+# 	input_vec_de = embedding_layer_de(decoder_inputs)
+# 	reshaper_de = Reshape((cfg.max_output_len, embedding_len))
+# 	input_vec_de = reshaper_de(input_vec_de)
+	
+	decoder_lstm = GRU(cfg.input_vocab_size, return_sequences=True, return_state=True)
+	decoder_outputs, _ = decoder_lstm(decoder_inputs, initial_state=encoder_states)
+	decoder_dense = Dense(cfg.output_vocab_size, activation='softmax')
+	decoder_outputs = decoder_dense(decoder_outputs)
+	
+	# Define the model that will turn
+	# `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
+	model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
+	model.compile(optimizer='Adagrad', loss='categorical_crossentropy', metrics=['accuracy'])
 # 	extend_args = {'encoder_inputs':encoder_inputs, "encoder_states":encoder_states, "decoder_inputs":decoder_inputs,
 # 				   'decoder_lstm':decoder_lstm, 'decoder_dense':decoder_dense }
 	return model
@@ -1190,21 +1398,21 @@ def gen_model_class_4():
 def gen_model_0():
 	model = Sequential()
 	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
-	model.add(LSTM(cfg.input_vocab_size, dropout=0.1, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
+	model.add(LSTM(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
 	model.add(RepeatVector(cfg.max_output_len))
-	model.add(LSTM(cfg.input_vocab_size, dropout=0., return_sequences=True, implementation = 2))
+	model.add(LSTM(cfg.input_vocab_size, return_sequences=True, implementation = 2))
 	model.add(TimeDistributed(Dense(cfg.output_vocab_size, activation='softmax')))
-	model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 
 def gen_model_5():
 	model = Sequential()
 	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
-	model.add(Bidirectional(LSTM(cfg.input_vocab_size, dropout=0.1, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)), merge_mode='sum'))
+	model.add(GRU(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
 	model.add(RepeatVector(cfg.max_output_len))
-	model.add(LSTM(cfg.input_vocab_size, dropout=0.1, implementation = 2, return_sequences=True))
+	model.add(GRU(cfg.input_vocab_size, return_sequences=True, implementation = 2))
 	model.add(TimeDistributed(Dense(cfg.output_vocab_size, activation='softmax')))
-	model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 
 
@@ -1319,29 +1527,59 @@ def experiment_attention3():
 	train_sparse(model, "attention3_test_ret", x_t, y_train, x_v, y_valid, df_valid, 
 				batch_size=256, nb_epoch = 300)
 	
-def experiment_attention1():
-	x_train, y_train, x_valid, y_valid, _, df_valid = data_process.gen_data_from_npz("../data/train_filted.npz")
-	x_t = sparse.csr_matrix(x_train)
-# 	x_v = sparse.csr_matrix(x_valid)
-	x_v = x_valid
+
 	
-	model = gen_model_2(depth=1)
-	print(model.summary())
-	
-	train_sparse(model, "attention1_test_ret", x_t, y_train, x_v, y_valid, df_valid, 
-				batch_size=64, nb_epoch = 50)
-	
-def experiment_simple1():
-	x_train, y_train, x_valid, y_valid, _, df_valid = data_process.gen_data_from_npz("../data/train_filted.npz")
-	x_t = sparse.csr_matrix(x_train)
-# 	x_v = sparse.csr_matrix(x_valid)
-	x_v = x_valid
-	
+def experiment_simple_lstm(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_file=None):
+	data = np.load("../data/train_cls{}.npz".format(cls_id))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
 	model = gen_model_0()
 	print(model.summary())
 	
-	train_sparse(model, "simple1_test_ret", x_t, y_train, x_v, y_valid, df_valid, 
-				batch_size=256, nb_epoch = 50)
+	initial_epoch = 0
+	#load pre-training weight
+	if pre_train_model_file is not None:
+		print "Load pre-training weight from file:" + pre_train_model_file
+		model.load_weights(pre_train_model_file)
+		index_start = pre_train_model_file.find("_weights.") + len('_weights.')
+ 		index_end = pre_train_model_file.find("-")
+		initial_epoch = int(pre_train_model_file[index_start:index_end])
+	log_dir = '../logs/nt{}/'.format(cls_id)
+# 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
+# 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
+# 	print(model.summary())
+	train_onehot(model, log_dir, "l1_l1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=256, nb_epoch = nb_epoch + initial_epoch)
+
+def experiment_simple_gru(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_file=None):
+	data = np.load("../data/train_cls{}.npz".format(cls_id))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
+	model = gen_model_5()
+	print(model.summary())
+	
+	initial_epoch = 0
+	#load pre-training weight
+	if pre_train_model_file is not None:
+		print "Load pre-training weight from file:" + pre_train_model_file
+		model.load_weights(pre_train_model_file)
+		index_start = pre_train_model_file.find("_weights.") + len('_weights.')
+ 		index_end = pre_train_model_file.find("-")
+		initial_epoch = int(pre_train_model_file[index_start:index_end])
+	log_dir = '../logs/nt{}/'.format(cls_id)
+# 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
+# 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
+# 	print(model.summary())
+	train_onehot(model, log_dir, "g1_g1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=256, nb_epoch = nb_epoch + initial_epoch)
 	
 def experiment_simple1_bi():
 	x_train, y_train, x_valid, y_valid, _, df_valid = data_process.gen_data_from_npz("../data/train_filted.npz")
@@ -1380,14 +1618,15 @@ def experiment_simple3():
 	train_sparse(model, "simple3_test_ret", x_t, y_train, x_v, y_valid, df_valid, 
 				batch_size=256, nb_epoch = 200)
 	
-	
-def experiment_teaching1(cls_id=1, pre_train_model_file=None):
+def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 	x_t_c = data['x_t_c']
 	y_t = data['y_t']
-	
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=10000, random_state=0)
-	model = gen_model_teaching_0()
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
+	model = gen_model_2()
 	print(model.summary())
 	
 	initial_epoch = 0
@@ -1402,9 +1641,72 @@ def experiment_teaching1(cls_id=1, pre_train_model_file=None):
 # 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
 # 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
 # 	print(model.summary())
-	train_teaching_onehot(model, log_dir, "teach_l1_l1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
-					batch_size=256, nb_epoch = 100 + initial_epoch)
+	train_onehot(model, log_dir, "attention_l1_l1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=100, nb_epoch = 100 + initial_epoch)
 	
+def experiment_teaching1(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_file=None):
+	data = np.load("../data/train_cls{}.npz".format(cls_id))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=10000, random_state=0)
+	model = gen_model_teaching_LSTM()
+	print(model.summary())
+	
+	initial_epoch = 0
+	#load pre-training weight
+	if pre_train_model_file is not None:
+		print "Load pre-training weight from file:" + pre_train_model_file
+		model.load_weights(pre_train_model_file)
+		index_start = pre_train_model_file.find("_weights.") + len('_weights.')
+ 		index_end = pre_train_model_file.find("-")
+		initial_epoch = int(pre_train_model_file[index_start:index_end])
+	log_dir = '../logs/nt{}/'.format(cls_id)
+# 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
+# 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
+# 	print(model.summary())
+	train_teaching_onehot(model, log_dir, "teach_g1_g1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=256, nb_epoch = nb_epoch + initial_epoch)
+	
+def experiment_teaching0(nb_epoch=100, input_num=0, add_index_file="../data/en_train_test_ret_err_index", add_cnt=10, cls_id=0, pre_train_model_file=None):
+	data = np.load("../data/en_train.npz".format(cls_id))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	if add_index_file is not None:
+		indies = data_process.load(add_index_file)
+		print "add additional error training data:" + str(len(indies))
+		add_x = x_t_c[indies]
+		add_y = y_t[indies]
+		for i in range(add_cnt):
+			x_t_c = np.vstack([x_t_c, add_x])
+			y_t = np.vstack([y_t, add_y])
+	
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=10000, random_state=0)
+	print "class id {0}, total training data {1}, valid data{2}".format(cls_id, x_train.shape[0], x_valid.shape[0])
+	
+	model = gen_model_teaching_LSTM()
+	print(model.summary())
+	
+	initial_epoch = 0
+	#load pre-training weight
+	if pre_train_model_file is not None:
+		print "Load pre-training weight from file:" + pre_train_model_file
+		model.load_weights(pre_train_model_file)
+		index_start = pre_train_model_file.find("_weights.") + len('_weights.')
+ 		index_end = pre_train_model_file.find("-")
+		initial_epoch = int(pre_train_model_file[index_start:index_end])
+	log_dir = '../logs/nt{}/'.format(cls_id)
+# 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
+# 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
+# 	print(model.summary())
+	
+	train_teaching_onehot(model, log_dir, "teach_l1_l1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=256, nb_epoch = nb_epoch + initial_epoch)	
 # def experiment_teaching2():
 # 	x_train, y_train, x_valid, y_valid, _, df_valid = data_process.gen_data_from_npz("../data/train_filted.npz")
 # 	x_t = sparse.csr_matrix(x_train)
@@ -1471,7 +1773,7 @@ def experiment_classify_frag():
 			batch_size=256, nb_epoch = 200)
 	
 def run_experiments():
-	experiment_simple1()
+	experiment_simple_gru()
 	experiment_simple2()
 	experiment_simple3()
 	experiment_attention3()
@@ -1486,110 +1788,169 @@ def evalute_acc(ret_file, err_file):
 	df_err.to_csv(err_file)
 	print 'The corrected num is:%d, real acc:%f'%(len(df_c), len(df_c)/float(len(df_ret)))
 
-def split_by_classifier(classifier, x_t_cls, x_t, df_test, y_t_cls=None, y_t=None):
-	predict_y = classifier.predict(x_t_cls, batch_size = 256, verbose=0)
-	p_y = np.argmax(predict_y, axis=1)
+def split_by_classifier(cls_num, classifier, x_t_cls, x_t, df_test, y_t_cls=None, y_t=None):
+	
+	
 	index_list = []
 	x_list = []
 	cls_df_list = []
-	index0 = np.where(p_y==0)[0].tolist()
-	index1 = np.where(p_y==1)[0].tolist()
-# 	index2 = np.where(p_y==2)[0].tolist()
-	index_list.append(index0)
-	index_list.append(index1)
-	
-	x_list.append(x_t[index0])
-	x_list.append(x_t[index1])
-# 	x_list.append(x_t[index2])
-	
-	cls_df_list.append(df_test.iloc[index0].reset_index(drop=True))
-	cls_df_list.append(df_test.iloc[index1].reset_index(drop=True))
-# 	cls_df_list.append(df_test.iloc[index2])
-	
-	cls_df_list[0]['p_new_class'] = 1
-	cls_df_list[1]['p_new_class'] = 2
-# 	cls_df_list[2]['p_new_class'] = 3
-	
 	cls_y_list = []
-	if y_t_cls is not None:
-		cls_y_list.append(y_t_cls[index0])
-		cls_y_list.append(y_t_cls[index1])
-# 		cls_y_list.append(y_t_cls[index2])
-		
 	y_list = []
-	if y_t is not None:
-		y_list.append(y_t[index0])
-		y_list.append(y_t[index1])
-# 		y_list.append(y_t[index2])
-		
+	if classifier is None:
+		index_list = [range(len(df_test))]
+		x_list = [x_t]
+		cls_df_list = [df_test]
+		cls_y_list = [y_t_cls]
+		y_list = [y_t]
+		return index_list, x_list, cls_df_list, cls_y_list, y_list
+	
+	predict_y = classifier.predict(x_t_cls, batch_size = 256, verbose=0)
+	p_y = np.argmax(predict_y, axis=1)
+
+	for cls in range(cls_num):
+		cls_id = cls + 1
+		index = np.where(p_y==cls)[0].tolist()
+		index_list.append(index)
+		x_list.append(x_t[index])
+		cls_df_list.append(df_test.iloc[index].reset_index(drop=True))
+		cls_df_list[cls]['p_new_class'] = cls_id
+		if y_t_cls is not None:
+			cls_y_list.append(y_t_cls[index])
+		if y_t is not None:
+			y_list.append(y_t[index])
+
 	
 	return index_list, x_list, cls_df_list, cls_y_list, y_list
 
 
-def run_normalize(is_evaluate = False, test_size=0):
+def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_args=cfg.data_args_train, is_teach=False):
 	df_test = None
 	if test_size > 0:
-		df_test = pd.read_csv('../data/test_filted_classify.csv', nrows=test_size)
+		df_test = pd.read_csv(data_args['df_test'], nrows=test_size)
 	else:
-		df_test = pd.read_csv('../data/test_filted_classify.csv')
-	data = np.load('../data/en_test_classify.npz')
+		df_test = pd.read_csv(data_args['df_test'])
+		
+	df_test['len'] = df_test['before'].apply(lambda x:len(str(x)))
+	cfg.max_output_len_decode = df_test['len'].max()
+	print "Max decode_teach output length is {}".format(cfg.max_output_len_decode)
+	del df_test['len']
+	
+	data = np.load(data_args['feat_classify'])
 	x_t_cls = data['x_t']
-	data = np.load('../data/en_test.npz')
+	data = np.load(data_args['feat_normalization'])
 # 	x_t = data['x_t']
 	x_t_c = data['x_t_c']
 	
 	if test_size > 0:
 		x_t_c = x_t_c[:test_size]
 		x_t_cls = x_t_cls[:test_size]
-	
-	mod_classifier = gen_model_class_2()
-	
-	print "Load classify model..."
-	print mod_classifier.summary()
-	
-	mod_classifier.load_weights("../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5")
-
-	
-	index_list, x_list, cls_df_list, _, _ = split_by_classifier(mod_classifier, x_t_c, x_t_c, df_test)
-	
-	print "Total item num:%d, c1 num:%d, c2 num:%d"%(len(df_test), len(cls_df_list[0]), len(cls_df_list[1]))
-
-	decode(x_list[0], cls_df_list[0], weights_file="../model/teach_l1_l1_c1_weights.98-0.0023-0.9994-0.0023-0.9994.hdf5")
-	if is_evaluate:
-		evalute_result(x_list[0], "../data/noraml_err_cls1.csv")
-	
-	decode(x_list[1], cls_df_list[1], weights_file="../model/teach_l1_l1_c2_weights.45-0.0515-0.9853-0.0514-0.9852.hdf5")
-	if is_evaluate:
-		evalute_result(x_list[1], "../data/noraml_err_cls2.csv")
 		
+	cls_num = 1
+	mod_classifier = None
+	if use_classifier:
+		mod_classifier = gen_model_class_2()
+		print "Load classify model..."
+		print mod_classifier.summary()
+		mod_classifier.load_weights(data_args['model_classify'])
+		cls_num = len(data_args['model_normal'])
+	index_list, x_list, cls_df_list, _, _ = split_by_classifier(cls_num, mod_classifier, x_t_c, x_t_c, df_test)
+	
+	
+	cls_info = "Total item num:{}, ".format(len(df_test))
+	
+	
+	
+	for cls in range(cls_num):
+		cls_info = cls_info + 'c{0} num:{1} '.format(cls + 1, len(cls_df_list[cls]))
+		if is_teach:
+			decode_teach(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
+		else:
+			decode(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
+		if is_evaluate:
+			evalute_result(x_list[cls], "../data/noraml_err_cls{}.csv".format(cls + 1))
+	
+	print cls_info
 
 		
 	gen_result_file(index_list, df_test, cls_df_list, 
-					ret_file='../data/en_test_ret.csv', sub_file='../data/en_submission.csv', origin_file="../data/en_test_class.csv")
+					test_ret_file=data_args['test_ret_file'], ret_file=data_args['ret_file'], origin_file=data_args['origin_file'],
+					 sub_file=data_args['sub_file'], test_ret_file_err=data_args['test_ret_file_err'])
 	
 	
-def gen_result_file(index_list, df_test, cls_df_list, ret_file, sub_file=None, origin_file="../data/en_test_class.csv"):
+def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, origin_file, sub_file=None, test_ret_file_err=None):
 	df_origin = pd.read_csv(origin_file)
-	df_sub = pd.DataFrame()
-	df_test['p_after'] = ''
 	df_origin['p_after'] = df_origin['before']
-	df_sub['id'] = df_origin.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
-	df_test.at[index_list[0], 'p_after'] = cls_df_list[0]['p_after'].values.tolist()
-	df_test.at[index_list[1], 'p_after'] = cls_df_list[1]['p_after'].values.tolist()
+	is_classified = (len(index_list) > 1)
 	
+	if is_classified:
+		df_test['p_after'] = ''
+		for cls in range(len(index_list)):
+			df_test.at[index_list[cls], 'p_after'] = cls_df_list[cls]['p_after'].values.tolist()
+	else:
+		df_test = cls_df_list[0]
+
+# 	df_origin['id'] = df_origin.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
+# 	df_test['id'] = df_test.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
 	index_origin = np.where(df_origin['new_class'].values!=0)[0].tolist()
-	df_origin.at[index_origin, 'p_after'] = df_test['p_after'].values.tolist()
+	print len(df_origin)
+	print len(index_origin)
+	print len(df_test)
+	#only when origin data length equal to the test data length, we need to cope with it, otherwise, skip.
+	if len(index_origin) == len(df_test):
+		df_origin.at[index_origin, 'p_after'] = df_test['p_after'].values.tolist()
+		#if it is copy flag, then copy the before value
+		df_origin['p_after'] = df_origin.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
+		df_origin.to_csv(ret_file, index=False)
+		print "saved predicted origin file:" + ret_file
+
+		if sub_file is not None:
+			df_sub = pd.DataFrame()
+			df_sub['id'] = df_origin.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
+			df_sub['after'] = df_origin['p_after']
+			df_sub.to_csv(sub_file, index=False)
+			print 'saved submission file:' + sub_file
+		
+	else:
+		print "test data not equal to the origin data, skip submission stage."
+		
+	df_test['p_after'] = df_test.apply(lambda x:x['before'] if str(x['p_after']).strip() == cfg.unk_flg else x['p_after'], axis=1)
 	
-	#if it is copy flag, then copy the before value
-	df_origin['p_after'].apply(lambda x:x['before'] if str(x) == cfg.unk_flg else x['p_after'])
+# 	for i in range(len(df_test)):
+# 		p_after = df_test.at[i, 'p_after']
+# 		if str(p_after).strip() == cfg.unk_flg:
+# 			df_test.at[i, 'p_after'] = df_test.at[i, 'before']
+	#if has after field, we can calculate accuracy for each class
+	#switch column order
+	p_after = df_test['p_after']
+	df_test.drop(labels=['p_after'], axis=1,inplace = True)
+	df_test.insert(5, 'p_after', p_after)
 	
-	df_sub['after'] = df_origin['p_after']
+	if 'after' in df_test.columns.values.tolist():
+		info = "Total noramlization acc:{}, ".format(len(df_test[df_test['p_after']==df_test['after']])/float(len(df_test)))
+		if is_classified:
+			for cls in range(len(index_list)):
+				cls_id = cls + 1
+				cls_num = len(index_list[cls])
+				corrected_cls_num = len(df_test[(df_test['new_class1']==cls_id) & (df_test['p_after']==df_test['after'])])
+				acc = corrected_cls_num/float(cls_num)
+				info = info + "cls{0} acc:{1}   ".format(cls_id, acc)
+		print info
+		df_test_err = df_test[df_test['p_after']!=df_test['after']]
+		if test_ret_file_err is not None:
+			print "normalization error number is:" + str(len(df_test_err))
+			df_test_err.to_csv(test_ret_file_err)
+			print 'saved test normalization error result file:' + test_ret_file_err
+			err_index_file = test_ret_file_err[:test_ret_file_err.find(".csv")] + "_index"
+			data_process.dump(df_test_err.index.tolist(), err_index_file)
+			print "saved error index to file:" + err_index_file
+			
+
 	
-	df_origin.to_csv(ret_file, index=False)
-	print 'saved ret file:' + ret_file
-	if sub_file is not None:
-		df_sub.to_csv(sub_file, index=False)
-		print 'saved submission file:' + sub_file
+	
+	df_test.to_csv(test_ret_file, index=False)	
+	print 'saved test result file:' + test_ret_file
+	
+
 		
 def evalute_result(df_ret, err_file):
 	total = len(df_ret)
@@ -1597,25 +1958,43 @@ def evalute_result(df_ret, err_file):
 	df_err = df_ret[df_ret['after']!=df_ret['p_after']]
 	print "decoded token num:%d, err num:%d, acc:%f"%(total, len(df_err), df_corrected/float(total))
 	df_err.to_csv(err_file, index=False)
-	
+
 def decode(X, df_test, weights_file):
-	encoder, decoder = load_decode_model(weights_file)
+	model = gen_model_5()
+	model.load_weights(weights_file)
+	print "Load Normalization Model..."
+	print(model.summary())
+	decoder = model
 	N = len(df_test)
 	normalizations = []
 	for i in range(N):
 		before = str(df_test.at[i, 'before'])
-		after = decode_sequence(encoder, decoder, X[i])
+		after = decode_sequence(decoder, X[i])
 		normalizations.append(after)
 		print "sentence%d:%s -> %s"%(i, before, after)
 		
 	df_test['p_after'] = pd.Series(normalizations)
 	
-def load_decode_model(path="../model/teach_l1_l1_c1_weights.98-0.0023-0.9994-0.0023-0.9994.hdf5"):
-	model = gen_model_teaching_0()
-	model.load_weights(path)
+def decode_teach(X, df_test, weights_file):
+	
+	model = gen_model_teaching_LSTM()
+	model.load_weights(weights_file)
 	print "Load Normalization Model..."
 	print(model.summary())
 	
+	encoder, decoder = load_decode_model(model)
+	N = len(df_test)
+	normalizations = []
+	for i in range(N):
+		before = str(df_test.at[i, 'before'])
+		after = decode_sequence_teach(encoder, decoder, X[i])
+		normalizations.append(after)
+		print "sentence%d:%s -> %s"%(i, before, after)
+		
+	df_test['p_after'] = pd.Series(normalizations)
+	
+def load_decode_model(model):
+
 	encoder_weight = model.get_layer(index=2).get_weights()
 	decoder_weight = model.get_layer(index=3).get_weights()
 	dense_weight = model.get_layer(index=4).get_weights()
@@ -1656,7 +2035,32 @@ def load_decode_model(path="../model/teach_l1_l1_c1_weights.98-0.0023-0.9994-0.0
 	decoder_dense.set_weights(dense_weight)
 	return encoder_model, decoder_model
 
-def decode_sequence(encoder, decoder, X, beam_size=1):
+def decode_sequence(decoder, X, beam_size=2):
+	
+	#reshape X to one hot matrix
+	x = np.zeros((1, X.shape[0], cfg.input_vocab_size))
+	for t in range(X.shape[0]):
+		x[0, t, X[t]] = 1.0
+	
+	# Encode the input as state vectors.
+# 	print states_value[0].shape
+# 	print states_value[1].shape
+	decoded_sentence =  search_path_maxone(x, decoder=decoder, beam_size=beam_size)
+	
+	return " ".join(decoded_sentence)
+
+def search_path_maxone(x, decoder, beam_size):
+
+	p_y = decoder.predict(x, verbose=0)
+	decoded_sentence = get_predict_list(p_y)[0]
+		
+	return decoded_sentence
+
+def search_path_beam(x, decoder, beam_size):
+	p_y = decoder.predict(x, verbose=0)
+	tf.nn.ctc_beam_search_decoder(p_y, p_y.shape[0], beam_size, 1, False)
+
+def decode_sequence_teach(encoder, decoder, X, beam_size=2):
 	
 	#reshape X to one hot matrix
 	x = np.zeros((1, X.shape[0], cfg.input_vocab_size))
@@ -1665,12 +2069,20 @@ def decode_sequence(encoder, decoder, X, beam_size=1):
 	
 	# Encode the input as state vectors.
 	states_value = encoder.predict(x)
+# 	print states_value[0].shape
+# 	print states_value[1].shape
+	decoded_sentence =  search_path_beam1_teach(decoder=decoder, init_state=states_value, beam_size=beam_size)
 	
+	return " ".join(decoded_sentence)
+
+
+
+def search_path_maxone_teach(decoder, init_state, beam_size):
 	# Generate empty target sequence of length 1.
 	target_seq = np.zeros((1, 1, cfg.output_vocab_size))
 	# Populate the first character of target sequence with the start character.
 	target_seq[0, 0, cfg.dic_output_word2i['<GO>']] = 1.
-	
+	states_value = init_state
 	# Sampling loop for a batch of sequences
 	# (to simplify, here we assume a batch of size 1).
 	stop_condition = False
@@ -1702,58 +2114,205 @@ def decode_sequence(encoder, decoder, X, beam_size=1):
 		
 		# Update states
 		states_value = [h, c]
-	
-	return " ".join(decoded_sentence)
+		
+	return decoded_sentence
 
-def search_path_viterbi(decoder, init_state, beam_size):
+def search_path_viterbi_teach(decoder, init_state, beam_size):
+	def get_target_seq(state):
+		target_seq = np.zeros((1, 1, cfg.output_vocab_size))
+		target_seq[0, 0, state] = 1.
+		return target_seq
+	
+	def get_state_list(time):
+		states = []
+		if time < 1:
+			states = [cfg.dic_output_word2i[cfg.start_flg]]
+		else:
+			states = range(cfg.output_vocab_size)
+		return states
 	# Generate empty target sequence of length 1.
-	target_seq = np.zeros((1, 1, cfg.output_vocab_size))
 	# Populate the first character of target sequence with the start character.
-	target_seq[0, 0, cfg.dic_output_word2i[cfg.start_flg]] = 1.
+	#     target_seq = get_target_seq(cfg.dic_output_word2i[cfg.start_flg])
+	
+	#forward state
 	decoded_sentence = []
 	states_value = init_state
-	best_score = np.zeros((cfg.output_vocab_size))
-	best_edge = np.zeros((cfg.output_vocab_size))
-	best_edge[0] = cfg.dic_output_word2i[cfg.start_flg]
-	for t in range(1, cfg.max_output_len):
-		output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
-		log_prob = -np.log10(output_tokens_prob)
-		best_score[t] = float("inf")
-		for edge in range(cfg.output_vocab_size):
-			 score = best_score[t - 1] + log_prob[0, -1, edge]
-			 if score < best_score[t]:
-			 	best_score[t] = score
-			 	best_edge[t] = edge
+	best_score = np.zeros((cfg.max_output_len_decode, cfg.output_vocab_size))
+	best_tokens = np.zeros((cfg.max_output_len_decode, cfg.output_vocab_size))
+	best_tokens[0] = cfg.dic_output_word2i[cfg.start_flg]
+	
+	pre_states_value_dic = {cfg.dic_output_word2i[cfg.start_flg]:init_state}
+	for t in range(1, cfg.max_output_len_decode):
+		log_prob_list = []
+		temp_dic = {}
+		state_pre_list = get_state_list(t - 1)
+		for state_pre in state_pre_list:
+			target_seq = get_target_seq(state_pre)
+			states_value = pre_states_value_dic[state_pre]
+			output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
+			log_prob = -np.log10(output_tokens_prob)
+			log_prob = np.squeeze(log_prob)
+			log_prob += best_score[t - 1, state_pre]
+			log_prob_list.append(log_prob)
+			temp_dic[state_pre] = [h, c]
 		
-	while True:
-		output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
-		
-		# Sample a token
-		sampled_token_index = np.argmax(output_tokens_prob[0, -1, :])
-		# beam search
-		arr = output_tokens_prob[0, -1, :]
-		result = heapq.nlargest(beam_size, enumerate(arr),itemgetter(1))
-		#extract the n maxmium indies
-		max_index = map(lambda x:x[0], result)
-		
-		sampled_token = cfg.dic_output_i2word[sampled_token_index]
-		
-		if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg:
+		log_prob_arr = np.vstack(log_prob_list)
+		max_token_indies = np.argmin(log_prob_arr, axis=0)
+		if t == 1:
+			best_tokens[t] = state_pre_list[0]
+		else:
+			best_tokens[t] = max_token_indies
+			
+		best_score[t] = log_prob_arr[max_token_indies, range(log_prob_arr.shape[1])]
+		pre_states_value_dic = {}
+		for i,j in enumerate(max_token_indies):
+			if t == 1:
+				pre_states_value_dic[i] = temp_dic[cfg.dic_output_word2i[cfg.start_flg]]
+			else:
+				pre_states_value_dic[i] = temp_dic[j]
+
+	#backward stage
+	pre_index = np.argmin(best_score[-1])
+	sampled_token = cfg.dic_output_i2word[pre_index]
+	if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg and sampled_token != cfg.pad_flg:
+		decoded_sentence.append(sampled_token)
+	for t in range(1, cfg.max_output_len_decode - 1)[::-1]:
+		pre_index = int(best_tokens[t, pre_index])
+		sampled_token = cfg.dic_output_i2word[pre_index]
+		if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg and sampled_token != cfg.pad_flg:
 			decoded_sentence.append(sampled_token)
-		
-		# Exit condition: either hit max length
-		# or find stop character.
-		if (sampled_token == cfg.end_flg or sampled_token == cfg.pad_flg or len(decoded_sentence) > cfg.max_output_len):
-			stop_condition = True
-		
-		# Update the target sequence (of length 1).
+
+	decoded_sentence.reverse()
+
+#     while True:
+#         output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
+#         
+#         # Sample a token
+#         sampled_token_index = np.argmax(output_tokens_prob[0, -1, :])
+#         # beam search
+#         arr = output_tokens_prob[0, -1, :]
+#         result = heapq.nlargest(beam_size, enumerate(arr),itemgetter(1))
+#         #extract the n maxmium indies
+#         max_index = map(lambda x:x[0], result)
+#         
+#         sampled_token = cfg.dic_output_i2word[sampled_token_index]
+#         
+#         if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg:
+#             decoded_sentence.append(sampled_token)
+#         
+#         # Exit condition: either hit max length
+#         # or find stop character.
+#         if (sampled_token == cfg.end_flg or sampled_token == cfg.pad_flg or len(decoded_sentence) > cfg.max_output_len):
+#             stop_condition = True
+#         
+#         # Update the target sequence (of length 1).
+#         target_seq = np.zeros((1, 1, cfg.output_vocab_size))
+#         target_seq[0, 0, sampled_token_index] = 1.
+#         
+#         # Update states
+#         states_value = [h, c]
+	
+	return decoded_sentence
+
+
+def search_path_beam1_teach(decoder, init_state, beam_size):
+	def get_target_seq(state):
 		target_seq = np.zeros((1, 1, cfg.output_vocab_size))
-		target_seq[0, 0, sampled_token_index] = 1.
+		target_seq[0, 0, state] = 1.
+		return target_seq
+	
+	def initial_state_function(x):
+# 		init_state = encoder.predict(x)
+		return init_state
+	
+	def generate_function(X, Y_tm1, state_tm1):
+		states = []
+		probs = []
+		extras = []
+		for y, s in zip(Y_tm1, state_tm1):
+			x = get_target_seq(y)
+			output_tokens_prob, h, c = decoder.predict([x, s[0], s[1]])
+			states.append([h,c])
+			probs.append(np.squeeze(output_tokens_prob))
+			extras.append(c)
+		return states, np.vstack(probs), np.vstack(extras)
 		
-		# Update states
-		states_value = [h, c]
+	hypotheses = beam_search(initial_state_function, generate_function, None, 
+			cfg.dic_output_word2i[cfg.start_flg], cfg.dic_output_word2i[cfg.end_flg], 
+			beam_width=beam_size, num_hypotheses=1, max_length = cfg.max_output_len_decode)
+	
+	generated_tokens = []
+	for hypothesis in hypotheses:
+		generated_indices = hypothesis.to_sequence_of_values(set([cfg.dic_output_word2i[cfg.start_flg], cfg.dic_output_word2i[cfg.end_flg]]))
+		generated_tokens = [cfg.dic_output_i2word[i] for i in generated_indices]
+# 		print(" ".join(generated_tokens))
+	return generated_tokens
+
+def search_path_beam_teach(decoder, init_state, beam_size):
+	def get_target_seq(state):
+		target_seq = np.zeros((1, 1, cfg.output_vocab_size))
+		target_seq[0, 0, state] = 1.
+		return target_seq
+	
+	def get_state_list(time):
+		states = []
+		if time < 1:
+			states = [cfg.dic_output_word2i[cfg.start_flg]]
+		else:
+			states = best_tokens[time]
+		return states
+	# Generate empty target sequence of length 1.
+	# Populate the first character of target sequence with the start character.
+#     target_seq = get_target_seq(cfg.dic_output_word2i[cfg.start_flg])
+
+	#forward state
+	decoded_sentence = []
+	states_value = init_state
+	best_score = np.zeros((cfg.max_output_len_decode, beam_size))
+	best_tokens = np.zeros((cfg.max_output_len_decode, beam_size))
+	best_tokens[0] = cfg.dic_output_word2i[cfg.start_flg]
+	
+	pre_states_value_dic = {cfg.dic_output_word2i[cfg.start_flg]:init_state}
+	for t in range(1, cfg.max_output_len_decode):
+		log_prob_list = []
+		temp_dic = {}
+		for state_pre in get_state_list(t - 1):
+			target_seq = get_target_seq(state_pre)
+			states_value = pre_states_value_dic[state_pre]
+			output_tokens_prob, h, c = decoder.predict([target_seq] + states_value)
+			log_prob = -np.log10(output_tokens_prob)
+			log_prob = np.squeeze(log_prob)
+			log_prob += best_score[t - 1, state_pre]
+			log_prob_list.append(log_prob)
+			temp_dic[state_pre] = [h, c]
+		
+		log_prob_arr = np.vstack(log_prob_list)
+		max_token_indies = np.argmin(log_prob_arr, axis=0)
+		result = heapq.nlargest(beam_size, enumerate(max_token_indies), itemgetter(1))
+		max_token_indies = map(lambda x:x[0], result)
+		
+		best_tokens[t] = max_token_indies
+		best_score[t] = log_prob_arr[max_token_indies, range(log_prob_arr.shape[1])]
+		
+		pre_states_value_dic = {}
+		for i,j in enumerate(max_token_indies):
+			pre_states_value_dic[i] = temp_dic[j]
+
+	#backward stage
+	pre_index = np.argmin(best_score[-1])
+	sampled_token = cfg.dic_output_i2word[pre_index]
+	if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg and sampled_token != cfg.pad_flg:
+		decoded_sentence.append(sampled_token)
+	for t in range(1, cfg.max_output_len_decode)[::-1]:
+		pre_index = best_tokens[t, pre_index]
+		sampled_token = cfg.dic_output_i2word[pre_index]
+		if sampled_token != cfg.end_flg and sampled_token != cfg.start_flg and sampled_token != cfg.pad_flg:
+			decoded_sentence.append(sampled_token)
+
+	decoded_sentence.reverse()
 	
 
+	return decoded_sentence    
 def run_evalute_and_split():
 	df_test = pd.read_csv('../data/train_filted_classify.csv')
 	df_test['p_new_class'] = -1
@@ -1807,7 +2366,7 @@ def display_model():
 	layer1 = model.get_layer('conv_1')
 	w1 = layer1.get_weights()
 	print w1
-	
+   	
 if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
@@ -1827,7 +2386,7 @@ if __name__ == "__main__":
 #  	df_c3 = df[df['new_class'] == 3]
 #  	c3_cnt = df_c3['len'].value_counts().sort_values()
 #  	c3_cnt.to_csv('../data/c3_cnt.csv', index=True)
-	experiment_teaching1(cls_id=2, pre_train_model_file = "../model/teach_l1_l1_c2_weights.144-0.0060-0.9984-0.0062-0.9984.hdf5")
+# 	experiment_teaching1(cls_id=1, pre_train_model_file = "../model/teach_l1_l1_c1_weights.134-0.0023-0.9994-0.0021-0.9994.hdf5")
 #  	del df['len']
 #  	print 'saved cnt info.'
 #  	data_process.gen_one2one_dict(df)
@@ -1836,7 +2395,10 @@ if __name__ == "__main__":
 # 	
 # 	df = pd.read_csv('../data/en_train_filted_class.csv')
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
-# 	run_normalize(False, 100)
+	
+# 	run_normalize(False, 10000, False, cfg.data_args_train_no_classify)
+	experiment_simple_gru(nb_epoch=200, input_num=0, cls_id=0)
+# 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
