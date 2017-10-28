@@ -2397,7 +2397,7 @@ if __name__ == "__main__":
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
 	
 # 	run_normalize(False, 10000, False, cfg.data_args_train_no_classify)
-	experiment_simple_gru(nb_epoch=200, input_num=0, cls_id=0)
+	experiment_simple_gru(nb_epoch=200, input_num=0, cls_id=0, pre_train_model_file="../model/g1_g1_c0_weights.37-0.0142-0.9962-0.0127-0.9966")
 # 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
