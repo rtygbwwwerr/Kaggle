@@ -44,7 +44,10 @@ from math import ceil, floor
 from vis.optimizer import Optimizer
 from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
+import sys
 
+reload(sys)
+sys.setdefaultencoding('utf8')
 from __builtin__ import str
 cfg.init()
 
@@ -2855,19 +2858,21 @@ def display_model():
 	print w1
    	
 if __name__ == "__main__":
+	
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
 # 	df = pd.read_csv('../data/en_train.csv')
-# 	data_process.gen_constant_dict()
-# 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
-# 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
+# 	data_process.display_token_info(df, "rho", "after")
+	data_process.gen_constant_dict()
+	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
+	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
 	df = pd.read_csv('../data/en_train_filted_class.csv')
 	
 	
 # 	run_evalute_and_split()
 	data_process.gen_train_feature(df)
 	df = pd.read_csv('../data/en_test_class.csv')
-# # # 	
+# # # # 	
 	data_process.gen_test_feature(df)
 # 	data_process.gen_extend_features(df)
 # 	print len(df)

@@ -29,7 +29,7 @@ import datetime
 from scipy import sparse
 import random
 import cPickle as pickle
-from bokeh.server.protocol.messages import index
+
 
 def standardization(X):
 	x_t = preprocessing.scale(X, axis=0, with_mean=True, with_std=True, copy=True)
@@ -303,7 +303,7 @@ def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50
 			continue
 		
 		token_id = data.at[i, 'token_id']
-		token = map(lambda c : char_to_code(c) , list(str(data.at[i, 'before'])))
+		token = map(lambda c : char_to_code(c) , list(unicode(str(data.at[i, 'before']))))
 		if len(token) > m_len:
 			token = token[:m_len]
 		
@@ -327,7 +327,7 @@ def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50
 				
 			elif l_token_id > 0 and l_token_id <= MaxToken:
 				l_token_id -= 1
-				l_token = map(lambda c : char_to_code(c) , list(str(data.at[i - (token_id - l_token_id), 'before'])))
+				l_token = map(lambda c : char_to_code(c) , list(unicode(str(data.at[i - (token_id - l_token_id), 'before']))))
 				l_token.append(cfg.split_token_index)
 				l_context = l_token + l_context
 				l_len -= len(l_token)
@@ -344,7 +344,7 @@ def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50
 				
 			elif r_token_id >= 0 and r_token_id < MaxToken:
 				r_token_id += 1
-				r_token = map(lambda c : char_to_code(c) , list(str(data.at[i + (r_token_id - token_id), 'before'])))
+				r_token = map(lambda c : char_to_code(c) , list(unicode(str(data.at[i + (r_token_id - token_id), 'before']))))
 				r_token.insert(0, cfg.split_token_index)
 				r_context.extend(r_token)
 				r_len -= len(r_token)
@@ -375,7 +375,7 @@ def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normali
 			continue
 		
 		token_id = data.at[i, 'token_id']
-		token = map(lambda c : fn_c2i(c) , list(str(data.at[i, 'before'])))
+		token = map(lambda c : fn_c2i(c) , list(unicode(str(data.at[i, 'before']))))
 		
 		#sub 2 is place for the split-input flag
 		length = max_length - 2
@@ -435,7 +435,7 @@ def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normali
 				
 			elif l_token_id > 0 and l_token_id <= MaxToken:
 				l_token_id -= 1
-				l_token = map(lambda c : fn_c2i(c) , list(str(data.at[i - (token_id - l_token_id), 'before'])))
+				l_token = map(lambda c : fn_c2i(c) , list(unicode(str(data.at[i - (token_id - l_token_id), 'before']))))
 				l_token.append(cfg.split_token_index)
 				l_context = l_token + l_context
 				l_len -= len(l_token)
@@ -453,7 +453,7 @@ def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normali
 				
 			elif r_token_id >= 0 and r_token_id < MaxToken:
 				r_token_id += 1
-				r_token = map(lambda c : fn_c2i(c) , list(str(data.at[i + (r_token_id - token_id), 'before'])))
+				r_token = map(lambda c : fn_c2i(c) , list(unicode(str(data.at[i + (r_token_id - token_id), 'before']))))
 				r_token.insert(0, cfg.split_token_index)
 				r_context.extend(r_token)
 				r_len -= len(r_token)
@@ -522,7 +522,7 @@ def extract_ngram_feature(data, ngram=2):
 				context.append(cfg.end_flg_index)
 			else:
 # 				print "i:%d,m:%d,t:%d, mid"%(i, m, t)
-				char_list = [cfg.w2i(v) for v in list(str(data.at[m, 'before']))]
+				char_list = [cfg.w2i(v) for v in list(unicode(str(data.at[m, 'before'])))]
 				
 				if t == token_id:
 					context.append(cfg.split_input_index)
@@ -595,7 +595,7 @@ def extract_y_info(data):
 # 	dic = load_dict('../data/out_vocab.csv')
 
 	def covert(x):
-		words = str(x).strip().split(' ')
+		words = unicode(str(x)).strip().split(' ')
 		values = map(lambda x: cfg.w2i(x), words)
 		values.insert(0, cfg.start_flg_index)
 		values.append(cfg.end_flg_index)
@@ -636,7 +636,7 @@ def gen_alpha_table():
 	table = [set()]
 	
 	def add_set(x):
-		table[0] = table[0] | set(str(x))
+		table[0] = table[0] | set(unicode(str(x)))
 	
 	df['before'].apply(lambda x: add_set(x))
 	
@@ -943,10 +943,16 @@ def display_feature_info(df, name):
 	print "num_class of %s is:%d"%(name, num_class)
 	print cnts
 	
-def display_input_token_info(df, input_token):
-	df_out = df[df['before']==input_token]
+def display_token_info(df, input_token, feature_name="before"):
+	df_out = df[df[feature_name]==input_token]
 	print "Total num:%d"%(len(df_out))
 	display_feature_info(df_out, 'after')
+	print df_out["sentence_id"]
+
+	
+
+	
+	
 	
 	
 def display_sentence(id, data):
@@ -1143,7 +1149,7 @@ def gen_constant_dict():
 			vals = {}
 			vals[val] = 1
 			before_after_dict[key] = vals
-	data.apply(lambda x: add_to_dic(x['before'], x['after']), axis=1)
+	data.apply(lambda x: add_to_dic(unicode(str(x['before'])), unicode(str(x['after']))), axis=1)
 	list_words = []
 # 	list_after = []
 	
