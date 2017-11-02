@@ -762,8 +762,8 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 				
 				feed_dict = model.make_feed_dict(data_dict)
 # 				feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-				_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, summaries= \
-				    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.summary_op], feed_dict)
+				_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
+				    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.summary_op], feed_dict)
 				
 				if (step + 1) % 1 == 0:
 # 					a0 = learn_rate
@@ -782,7 +782,7 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 					epoch_loss += loss_value
 					epoch_acc += accuracy
 					epoch_acc_seq += accuracy_seqs
-					train_summary_writer.add_summary(summaries, step)
+					train_summary_writer.add_summary(summaries, g_step)
 			epoch_loss = epoch_loss / (max_batchid + 1.0)
 			epoch_acc = epoch_acc / (max_batchid + 1.0)
 			epoch_acc_seq = epoch_acc_seq / (max_batchid + 1.0)
@@ -2860,20 +2860,21 @@ def display_model():
 if __name__ == "__main__":
 	
 # 	data_process.gen_alpha_table()
+# 	data_process.gen_out_vocab()
 # 	run_evalute()
 # 	df = pd.read_csv('../data/en_train.csv')
 # 	data_process.display_token_info(df, "rho", "after")
-	data_process.gen_constant_dict()
-	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
-	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-	df = pd.read_csv('../data/en_train_filted_class.csv')
-	
-	
-# 	run_evalute_and_split()
-	data_process.gen_train_feature(df)
-	df = pd.read_csv('../data/en_test_class.csv')
-# # # # 	
-	data_process.gen_test_feature(df)
+# 	data_process.gen_constant_dict()
+# 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
+# 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
+# 	df = pd.read_csv('../data/en_train_filted_class.csv')
+# 	
+# 	
+# # 	run_evalute_and_split()
+# 	data_process.gen_train_feature(df)
+# 	df = pd.read_csv('../data/en_test_class.csv')
+# # # # # 	
+# 	data_process.gen_test_feature(df)
 # 	data_process.gen_extend_features(df)
 # 	print len(df)
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
