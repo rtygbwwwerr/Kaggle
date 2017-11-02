@@ -9,7 +9,9 @@ from collections import Counter
 import seaborn as sns
 from sklearn import preprocessing
 from bokeh.layouts import row
+
 sys.path.append('../../')
+
 from base import data_util
 
 from config import Config as cfg
@@ -279,7 +281,7 @@ def char_to_code(c):
 		return cfg.unk_flg_index
 	
 def char_to_code_nor(c):
-	return cfg.dic_input_char2i.get(c, cfg.unk_flg_index)
+	return cfg.w2i(c)
 
 def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50, is_normalized=False):
 	feat_m = []
@@ -520,7 +522,7 @@ def extract_ngram_feature(data, ngram=2):
 				context.append(cfg.end_flg_index)
 			else:
 # 				print "i:%d,m:%d,t:%d, mid"%(i, m, t)
-				char_list = [cfg.dic_input_char2i.get(v, cfg.unk_flg_index) for v in list(str(data.at[m, 'before']))]
+				char_list = [cfg.w2i(v) for v in list(str(data.at[m, 'before']))]
 				
 				if t == token_id:
 					context.append(cfg.split_input_index)
@@ -748,10 +750,10 @@ def gen_train_feature(df):
 	print(y_t_cls.shape[0])
 	print len(df_out)
 	
- 	df_out.to_csv('../data/train_filted_classify.csv', index=False)
+ 	df_out.to_csv('../data/train_cls0.csv', index=False)
  	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
 # 	np.savez("../data/en_train_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
- 	np.savez("../data/en_train.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+ 	np.savez("../data/train_cls0.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
 	save_numpy_data("../data/train_y_2class.npy", y_t_2cls)
 def down_sampling(x, y):
 	del_index = []
@@ -940,7 +942,13 @@ def display_feature_info(df, name):
 	num_class = len(cnts)
 	print "num_class of %s is:%d"%(name, num_class)
 	print cnts
-
+	
+def display_input_token_info(df, input_token):
+	df_out = df[df['before']==input_token]
+	print "Total num:%d"%(len(df_out))
+	display_feature_info(df_out, 'after')
+	
+	
 def display_sentence(id, data):
 # 	train = pd.read_csv('../data/en_train.csv')
 	df = data[data['sentence_id']==id]
@@ -1128,18 +1136,30 @@ def gen_constant_dict():
 		if before_after_dict.has_key(key):
 			vals = before_after_dict[key]
 			if val not in vals:
-				vals.append(val)
+				vals[val] = 1
+			else:
+				vals[val] = vals[val] + 1
 		else:
-			vals = []
-			vals.append(val)
+			vals = {}
+			vals[val] = 1
 			before_after_dict[key] = vals
 	data.apply(lambda x: add_to_dic(x['before'], x['after']), axis=1)
 	list_words = []
 # 	list_after = []
 	
 	for key, value in before_after_dict.items():
-		if len(value) == 1 and key == value[0]:
+		if len(value) == 1 and key == value.keys()[0]:
 			list_words.append(key)
+		elif len(value) == 2:
+			max_i = 0
+			min_i = 1
+			if value.values()[0] < value.values()[1]:
+				max_i = 1
+				min_i = 0
+			#if one kind is much larger than other, this key is extremely unbalance, which need to discard
+			if value.values()[max_i] / float(value.values()[min_i]) > 100000.0 and value.keys()[max_i] == key:
+				list_words.append(key)
+				print "K:{0}->k1:{1}={2}, k2:{3}={4}".format(key, value.keys()[max_i], value.values()[max_i], value.keys()[min_i], value.values()[min_i])
 	
 	df_out = pd.DataFrame(list_words, columns=['word'])
 	df_out.to_csv('../data/constant_vocab.csv', index=False)

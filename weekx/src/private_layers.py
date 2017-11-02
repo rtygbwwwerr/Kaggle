@@ -116,6 +116,7 @@ class DropconnectDense(Layer):
 class AttentionLSTM(Recurrent):
 	@interfaces.legacy_recurrent_support
 	def __init__(self, units, attention_model,
+				 implementation=0,
 				 activation='tanh',
 				 recurrent_activation='hard_sigmoid',
 				 use_bias=True,
@@ -138,7 +139,7 @@ class AttentionLSTM(Recurrent):
 		self.activation = activations.get(activation)
 		self.recurrent_activation = activations.get(recurrent_activation)
 		self.use_bias = use_bias
-
+		self.implementation = implementation
 		self.kernel_initializer = initializers.get(kernel_initializer)
 		self.recurrent_initializer = initializers.get(recurrent_initializer)
 		self.bias_initializer = initializers.get(bias_initializer)

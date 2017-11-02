@@ -1,4 +1,6 @@
 import data_process
+import copy
+from Orange.orangeom import star
 
 class Config(object):
 	dic_input_char2i = {}
@@ -9,22 +11,63 @@ class Config(object):
 	dic_constant = None
 	input_vocab_size = 0
 	vocab_size = 0
+	vocab = {}
+	vocab_i2word = {}
+	
+	@staticmethod
+	def w2i(w):
+		return Config.vocab.get(w, Config.unk_flg_index)
+	
+	@staticmethod
+	def i2w(i):
+		return Config.vocab_i2word.get(i, Config.unk_flg)
+	
+	@staticmethod
+	def is2ws(list_i):
+		s = [Config.i2w(i) for i in list_i]
+		return s
+	@staticmethod
+	def is2sentence(list_i):
+		s = Config.is2ws(list_i)
+		" ".join(s)
 	@staticmethod
 	def init():
 		Config.dic_input_char2i = data_process.load_dict_in('../data/input_alpha_table')
 		Config.input_vocab_size = len(Config.dic_input_char2i)
 		Config.dic_output_word2i = data_process.load_dict('../data/out_vocab.csv')
 		Config.output_vocab_size = len(Config.dic_output_word2i)
+		Config.vocab = Config.combine(Config.dic_input_char2i, Config.dic_output_word2i)
+		Config.vocab_size = len(Config.vocab)
+		
+		Config.vocab_i2word = {v: k for k, v in Config.vocab.items()}
 		Config.dic_output_i2word = {v: k for k, v in Config.dic_output_word2i.items()}
-		print 'len w2i:%d, len i2w:%d'%(len(Config.dic_output_word2i), len(Config.dic_output_i2word))
+		print 'vocab len total:%d,len w2i:%d, len i2w:%d'%(Config.vocab_size, len(Config.dic_output_word2i), len(Config.dic_output_i2word))
 		Config.dic_constant = data_process.load_constant_dict()
 		print 'input constant word num:%d'%(len(Config.dic_constant))
 		Config.dic_one2one = data_process.load('../data/one2one_dict')
 		
+	@staticmethod
+	def combine(main_dic, dic):
+		key0 = set(main_dic.keys())
+		key1 = set(dic.keys())
+		key_add = key1 - key0
+		start = len(key0)
+		
+		dic_combine = copy.deepcopy(main_dic)
+		
+		for k in key_add:
+			dic_combine[k] = start
+			dic[k] = start
+			start += 1
+		
+		
+		return dic_combine
+		
+		
 	class1 = set(['PUNCT', 'PLAIN'])
 	class2 = set(['VERBATIM', 'LETTERS', 'ELECTRONIC'])
 	class3 = set(['FRACTION','TIME','TELEPHONE','DIGIT','MONEY','DECIMAL','ORDINAL','MEASURE','CARDINAL','DATE', 'ADDRESS'])
-	batch_size = 256
+	batch_size = 100
 	max_num_features = 31
 # 	max_input_len = 1120,550,280
 	max_input_len = 80
@@ -36,7 +79,7 @@ class Config(object):
 	dim_left_embedding = 50
 	dim_right_embedding = 50
 	dim_mid_embedding = 50
-	
+	encoder_max_seq_len = max_input_len
 	input_classify_vocab_size = 101
 # 	max_output_len = 1850,411
 	max_output_len = 111
@@ -46,9 +89,15 @@ class Config(object):
 	max_grad_norm = 5
 	learning_rate = 1e-2
 	
+	save_freq = 10
+	eval_freq = 1
+	infer_freqv = 1
+	n_gpus = 1
 	input_hidden_dim = 512
-	encoder_hidden_size = 256
-	decoder_hidden_size = 280
+	encoder_hidden_size = 250
+	n_encoder_layer = 1
+	n_decoder_layer = 1
+	decoder_hidden_size = encoder_hidden_size
 	space_letter = 0
 # 	boundary_word = -3
 	pad_size = 1

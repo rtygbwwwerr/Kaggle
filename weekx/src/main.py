@@ -1,5 +1,6 @@
 import pandas as pd
 import data_process
+from base.data_seq import NumpySeqData
 import numpy as np
 import fst
 from keras.datasets import imdb
@@ -39,10 +40,11 @@ from operator import itemgetter
 from beam_search import beam_search
 from keras.layers import merge
 import model_maker
-
+from math import ceil, floor
 from vis.optimizer import Optimizer
-
+from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
+
 from __builtin__ import str
 cfg.init()
 
@@ -305,7 +307,7 @@ def generator_onehot(X, y, batch_size=128, shuffle=True):
 	while True:
 		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
 		X_batch = np.zeros((batch_size, X.shape[1], cfg.input_vocab_size))
-		y_batch = np.zeros((batch_size, y.shape[1], cfg.output_vocab_size))
+		y_batch = np.zeros((batch_size, y.shape[1], cfg.vocab_size))
 		# reshape X to be [samples, time steps, features]
 		for i, j in enumerate(batch_index):
 # 			X_batch[i,:,:] = np.transpose(X[j].toarray())
@@ -384,7 +386,7 @@ def reshape_data_onehot(X, y):
 		for t in range(X.shape[1]):
 			X_out[i,t,X[i,t]] = 1.0
 	
-	y_out = np.zeros((y.shape[0], y.shape[1], cfg.output_vocab_size))
+	y_out = np.zeros((y.shape[0], y.shape[1], cfg.vocab_size))
 	for i in range(y.shape[0]):
 		for t in range(y.shape[1]):
 			y_out[i,t,y[i,t]] = 1.0
@@ -392,7 +394,6 @@ def reshape_data_onehot(X, y):
 	return X_out, y_out
 
 def train_teaching(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 100):
-	path = '../data/'
 	# reshape X to be [samples, time steps, features]
 # 	X_valid = np.reshape(X_valid, (X_valid.shape[0], X_valid.shape[1], 1))
 # 	Y_valid = np.reshape(Y_valid, (Y_valid.shape[0], Y_valid.shape[1], 1))
@@ -470,6 +471,457 @@ def train_teaching_onehot(model, log_dir, ret_file_head, X_train, Y_train, X_val
 # 	val = np.max(p_y, axis=2)
 # 	print val
 	print('Test logloss:', score)
+def reshape_data_tf_copyNet(X, y):
+	X_decode_batch = np.where(y==cfg.end_flg_index, cfg.pad_flg_index, y)
+	y_batch = np.hstack([y[:,1:],np.ones((y.shape[0],1))*cfg.pad_flg_index])
+ 	y_copy_batch = np.zeros((y_batch.shape[0], y_batch.shape[1], cfg.vocab_size + cfg.max_input_len))
+	indices = np.where(X==cfg.split_input_index)
+	list_indices = []
+	for i in range(0, indices[1].shape[0], 2):
+		temp = list(indices[1])
+		temp[0] = temp[0] + 1
+# 		temp = map(lambda x:int(x), temp)
+		list_indices.append(temp)
+
+	for i in range(len(list_indices)):
+		in_chars = list(X[i, list_indices[i][0]:list_indices[i][1]])
+		out_chars = list(y_batch[i])
+		for j in range(len(out_chars)):
+			c = int(out_chars[j])
+			y_copy_batch[i,j,c] = 1.0
+# 			if c == cfg.end_flg_index or c == cfg.pad_flg_index:
+# 				break
+			for k in range(len(in_chars)):
+				if c == int(in_chars[k]):
+					index = cfg.vocab_size + list_indices[i][0] + k
+					y_copy_batch[i,j,index] = 1.0
+					y_copy_batch[i,j,c] = 0.0
+					break
+			
+		
+		
+	return  X_decode_batch, y_copy_batch
+
+def reshape_data_tf_teach_onehot(X, y):
+	X_decode_batch = np.where(y==cfg.end_flg_index, cfg.pad_flg_index, y)
+	y_batch = np.hstack([y[:,1:],np.ones((y.shape[0],1))*cfg.pad_flg_index])
+	X_out = np.zeros((X.shape[0], X.shape[1], cfg.input_vocab_size))
+	for i in range(X.shape[0]):
+		for t in range(X.shape[1]):
+			X_out[i,t,int(X[i,t])] = 1.0
+	
+	y_out = np.zeros((y.shape[0], y.shape[1], cfg.output_vocab_size))
+	X_d_out = np.zeros((y.shape[0], y.shape[1], cfg.output_vocab_size))
+	for i in range(y.shape[0]):
+		for t in range(y.shape[1]):
+			X_d_out[i,t,int(X_decode_batch[i,t])] = 1.0
+			y_out[i,t,int(y_batch[i, t])] = 1.0
+			
+	return X_out, X_d_out, y_out
+
+def reshape_data_tf_teach_onehot_y(X, y):
+	X_decode_batch = np.where(y==cfg.end_flg_index, cfg.pad_flg_index, y)
+	y_batch = np.hstack([y[:,1:],np.ones((y.shape[0],1))*cfg.pad_flg_index])
+	X_out = X
+
+	
+	y_out = np.zeros((y.shape[0], y.shape[1], cfg.vocab_size))
+	for i in range(y.shape[0]):
+		for t in range(y.shape[1]):
+			y_out[i,t,int(y_batch[i, t])] = 1.0
+			
+	return X_out, X_decode_batch, y_out
+			
+def reshape_data_tf_teach(X, y):
+	X_decode_batch = np.where(y==cfg.end_flg_index, cfg.pad_flg_index, y)
+	y_batch = np.hstack([y[:,1:],np.ones((y.shape[0],1))*cfg.pad_flg_index])
+	X_out = X
+	return X_out, X_decode_batch, y_batch
+
+def get_batch_data_tf_teaching(X, y, batchid, batch_size, reshape_fn=reshape_data_tf_teach_onehot, shuffle=False):
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+		
+	batch_index = sample_index[batch_size*batchid:batch_size*(batchid+1)]
+	X_batch = X[batch_index,:]
+	y_batch = y[batch_index,:]
+	print "round{0},batch size:{1}".format(batchid, X_batch.shape[0])
+
+	# reshape X to be [samples, time steps, features]
+	X_out, X_d_out, y_out = reshape_fn(X_batch, y_batch)
+	return X_out, X_d_out, y_out
+
+def get_batch_data(X, y, batchid, batch_size, reshape_fn, shuffle=True):
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+		
+	batch_index = sample_index[batch_size*batchid:batch_size*(batchid+1)]
+	X_batch = X[batch_index,:]
+	y_batch = y[batch_index,:]
+	print "round{0},batch size:{1}".format(batchid, X_batch.shape[0])
+# 	X_decode_batch = y[batch_index,:]
+# 	#delete all end flag in decode inputs
+# 	X_decode_batch = np.where(X_decode_batch==cfg.end_flg_index, cfg.pad_flg_index, X_decode_batch)
+# 	
+# 	#delete all start flag in target sequences
+# 	y_batch = np.hstack([y_batch[:,1:],np.ones((batch_index,1))*cfg.pad_flg_index])
+	# reshape X to be [samples, time steps, features]
+	X_decode_batch, y_batch = reshape_data_tf_copyNet(X_batch, y_batch)
+# 	encoder_inputs_lengths = np.sum(X_batch!=cfg.pad_flg_index, axis=1)
+# 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
+	return X_batch, X_decode_batch, y_batch
+			
+def train_tf_teaching_copynet(model_fn, log_dir, ret_file_head, 
+			X_train, Y_train, X_valid, Y_valid, 
+			initial_epoch, batch_size=128, nb_epoch = 100):
+# 	print X_train[0]
+# 	print Y_train[0]
+	
+	# placeholder for inputs
+	p_encoder_inputs = tf.placeholder(tf.int32, shape=(cfg.batch_size, None))
+	p_decoder_inputs = tf.placeholder(tf.int32, shape=(cfg.batch_size, None))
+	p_decoder_outputs = tf.placeholder(tf.int32, shape=(cfg.batch_size, cfg.max_output_len,None))
+	
+	# placeholder for sequence lengths
+	p_encoder_inputs_lengths = tf.placeholder(tf.int32, shape=(cfg.batch_size,))
+	p_decoder_inputs_lengths = tf.placeholder(tf.int32, shape=(cfg.batch_size,))
+	args_input = {}
+	args_input['encoder_inputs'] = p_encoder_inputs
+	args_input['decoder_inputs'] = p_decoder_inputs
+	args_input['decoder_outputs'] = p_decoder_outputs
+	args_input['encoder_inputs_lengths'] = p_encoder_inputs_lengths
+	args_input['decoder_inputs_lengths'] = p_decoder_inputs_lengths
+	
+	max_batchid = int(np.ceil(X_train.shape[0] / batch_size))
+	
+	with tf.variable_scope('root'):
+		train_loss, train_op = model_fn(args_input, mode='train')
+	
+# 	with tf.variable_scope('root', reuse=True):
+# 		eval_loss = model_fn(args_input, mode='eval')
+	
+# 	with tf.variable_scope('root', reuse=True):
+# 		translations = model_fn(mode='infer')
+	
+	# session configure for GPU
+	sess_config = tf.ConfigProto()
+	# sess_config.gpu_options.allow_growth = True
+	# sess_config.per_process_gpu_memory_fraction = 0.5
+	with tf.Session(config=sess_config) as sess:
+		saver = tf.train.Saver()
+# 		sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+# 		sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+		sess.run(tf.global_variables_initializer())
+		for batchid in range(max_batchid):
+			# training
+# 			train_batch = train_data.next_batch()
+			encoder_inputs, decoder_inputs, decoder_outputs = get_batch_data(X_train, Y_train, batchid, 
+								batch_size, False)
+			feed_dict = {
+			    p_encoder_inputs: encoder_inputs,
+			    p_decoder_inputs: decoder_inputs,
+			    p_decoder_outputs:decoder_outputs,
+				p_encoder_inputs_lengths: np.ones((batch_size,)) * cfg.max_input_len,
+				p_decoder_inputs_lengths: np.ones((batch_size,)) * cfg.max_output_len
+# 			    p_encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+# 			    p_decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1)
+			} 
+			loss_train, _ = sess.run([train_loss, train_op], feed_dict=feed_dict)
+			print 'batchid = %d, train loss = %f' % (batchid, loss_train)
+			
+			# save checkpoints
+			if (batchid + 1) % cfg.save_freq == 0:
+				saver.save(sess, '../checkpoints/', global_step=batchid)
+				print 'model saved'
+			
+# 			# eval
+# 			if (batchid + 1) % cfg.eval_freq == 0:
+# 				encoder_inputs = X_valid
+# 				decoder_inputs, decoder_outputs = reshape_data_tf(Y_valid)
+# 				feed_dict = {
+# 				    p_encoder_inputs: encoder_inputs,
+# 				    p_decoder_inputs: decoder_inputs,
+# 				   	p_decoder_outputs: decoder_outputs,
+# 				    p_encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+# 				    p_decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1)
+# 				}
+# 				loss_eval = sess.run(eval_loss, feed_dict=feed_dict)
+# 				print '\t\tbatchid = %d, eval loss = %f' % (batchid, loss_eval)
+			
+# 			# inference
+# 			if (batchid + 1) % cfg.infer_freq == 0:
+# 				encoder_inputs, decoder_inputs, decoder_outputs = get_batch_data(X_valid, Y_valid, batchid, 
+# 								batch_size, False)
+# 				feed_dict = {
+# 				    encoder_inputs: encoder_inputs,
+# 				    decoder_inputs: decoder_inputs,
+# 				    decoder_outputs: decoder_outputs,
+# 				    encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+# 				    decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1)
+# 				}
+# 				word_ids = sess.run(translations, feed_dict=feed_dict)
+# 				print 'batchid = %d' % (batchid)
+# 				index = random.randint(0, 39)
+# 				print 'input:', vocab.word_ids_to_sentence(
+# 				        train_batch.encoder_inputs[index]), '\n'
+# 				print 'output:', vocab.word_ids_to_sentence(
+# 				        train_batch.decoder_inputs[index]), '\n'
+# 				print 'predict:', vocab.word_ids_to_sentence(
+# 				        word_ids[index]), '\n'
+
+def get_batch_data_onehot_copyNet(X, y, batchid, batch_size, shuffle=True):
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+		
+	batch_index = sample_index[batch_size*batchid:batch_size*(batchid+1)]
+	X_batch = X[batch_index,:]
+	y_batch = y[batch_index,:]
+	print "round{0},batch size:{1}".format(batchid, X_batch.shape[0])
+# 	X_decode_batch = y[batch_index,:]
+# 	#delete all end flag in decode inputs
+# 	X_decode_batch = np.where(X_decode_batch==cfg.end_flg_index, cfg.pad_flg_index, X_decode_batch)
+# 	
+# 	#delete all start flag in target sequences
+# 	y_batch = np.hstack([y_batch[:,1:],np.ones((batch_index,1))*cfg.pad_flg_index])
+	# reshape X to be [samples, time steps, features]
+	X_decode_batch, y_batch = reshape_data_tf_copyNet(X_batch, y_batch)
+# 	encoder_inputs_lengths = np.sum(X_batch!=cfg.pad_flg_index, axis=1)
+# 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
+	return X_batch, X_decode_batch, y_batch
+
+def restore_tf_model(path, sess):
+	meta_path = path + '.meta'
+	model_path = path
+	saver = tf.train.import_meta_graph(meta_path)
+	saver.restore(sess, model_path)
+
+def decode_sequence_tf(X, model, save_path, beam_size=2):
+	
+	config = tf.ConfigProto()
+	with tf.Session(config=config) as sess:
+		restore_tf_model(sess, save_path)
+		decoded_sentence =  search_path_maxone(x, decoder=decoder, beam_size=beam_size)
+		feed_dict = model.make_feed_dict(data_dict)
+		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
+	return " ".join(decoded_sentence)
+	
+def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head, 
+			X_train, Y_train, X_valid, Y_valid, 
+			initial_epoch, batch_size=128, nb_epoch = 100):
+	
+	dataset = NumpySeqData(cfg.pad_flg_index, cfg.end_flg_index)
+	dataset.load(X_train, Y_train, X_valid, Y_valid, cfg.vocab_i2word)
+	dataset.build()
+# 	data_process.dump(cfg.vocab_i2word, "../data/i2w.dic")
+# 	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
+# 	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
+# 	num_train_examples = X_train.shape[0]
+	max_epoch = nb_epoch
+	max_batchid = int(math.ceil(X_train.shape[0] / float(batch_size)))
+	print "Total epoch:{0}, step num of each epoch:{1}".format(max_epoch, max_batchid)
+	
+# 	steps_in_epoch = int(floor(num_train_examples / batch_size))
+
+	model = model_fn(
+						encoder_hidden_size=cfg.encoder_hidden_size, 
+						decoder_hidden_size=cfg.decoder_hidden_size, 
+						batch_size=batch_size, 
+						embedding_dim=cfg.embedding_size, 
+						vocab_size=cfg.vocab_size, 
+						max_decode_iter_size=cfg.max_output_len,
+						PAD = cfg.pad_flg_index,
+						START = cfg.start_flg_index,
+						EOS = cfg.end_flg_index,
+						)
+
+# 	model = Seq2SeqModel(config, input_batch=None)
+# 	summary_op = model.summary_op
+
+	saver = tf.train.Saver()
+	with tf.Session() as sess:
+# 		summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
+		train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
+		sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+		
+		print "Training Start!"
+		for epoch in range(1, max_epoch + 1):
+			print "Epoch {}".format(epoch)
+			epoch_loss = 0.
+			epoch_acc = 0.
+			epoch_acc_seq = 0.
+			for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
+				
+				feed_dict = model.make_feed_dict(data_dict)
+# 				feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
+				_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, summaries= \
+				    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.summary_op], feed_dict)
+				
+				if (step + 1) % 1 == 0:
+# 					a0 = learn_rate
+# 					b1 = model._opt._beta1_power.eval(sess)
+# 					b2 = model._opt._beta2_power.eval(sess)
+# 					cur_lr = a0 * (1-b2)**0.5 / (1-b1)
+					print "Step {cur_step:6d} / {all_step:6d} ... Loss: {loss:.5f}, token_acc:{token_acc:.5f}, seq_acc:{seq_acc:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(cur_step=step+1,
+																				 all_step=max_batchid,
+				                    											 loss=loss_value,
+				                    											 token_acc=accuracy,
+				                    											 seq_acc=accuracy_seqs,
+				                    											 grad = grads,
+				                    											 lr=learn_rate)
+				
+					dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
+					epoch_loss += loss_value
+					epoch_acc += accuracy
+					epoch_acc_seq += accuracy_seqs
+					train_summary_writer.add_summary(summaries, step)
+			epoch_loss = epoch_loss / (max_batchid + 1.0)
+			epoch_acc = epoch_acc / (max_batchid + 1.0)
+			epoch_acc_seq = epoch_acc_seq / (max_batchid + 1.0)
+			right, wrong = 0.0, 0.0
+			
+			for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
+				
+				feed_dict = model.make_feed_dict(data_dict)
+				beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
+				beam_result_ids = beam_result_ids[:, :, 0]
+				print beam_result_ids.shape
+				if step == 0:
+					print(data_dict['decoder_inputs'][:5])
+					print(beam_result_ids[:5])
+				now_right, now_wrong = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids)
+				right += now_right
+				wrong += now_wrong
+# 			valid_summary_writer.add_summary(summaries_valid, epoch)
+			path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{seq_acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
+																						    epoch_id=epoch,
+																						    loss=epoch_loss,
+																						    acc=epoch_acc,
+																						    seq_acc=epoch_acc_seq,
+																						    val_acc=100*right/float(right+wrong),
+																						    )
+			saved_path = saver.save(sess, path)
+			print "saved check file:" + saved_path
+			print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
+	
+			
+def train_tf_teaching_attention(model_fn, log_dir, ret_file_head, 
+			X_train, Y_train, X_valid, Y_valid, 
+			initial_epoch, batch_size=128, nb_epoch = 100):
+
+
+	
+	# placeholder for inputs
+	p_encoder_inputs = tf.placeholder(tf.int32, shape=(batch_size, None))
+	p_decoder_inputs = tf.placeholder(tf.int32, shape=(batch_size, None))
+# 	p_decoder_outputs = tf.placeholder(tf.int32, shape=(batch_size, None))
+	p_decoder_outputs = tf.placeholder(tf.int32, shape=(cfg.batch_size, None, cfg.vocab_size))
+	
+	# placeholder for sequence lengths
+	p_encoder_inputs_lengths = tf.placeholder(tf.int32, shape=(batch_size,))
+	p_decoder_inputs_lengths = tf.placeholder(tf.int32, shape=(batch_size,))
+	p_decoder_outputs_lengths = tf.placeholder(tf.int32, shape=(batch_size,))
+	p_embedding_placeholder = tf.placeholder(tf.float32, [cfg.vocab_size, cfg.embedding_size])
+	embedding = np.random.randn(cfg.vocab_size, cfg.embedding_size)
+	
+	args_input = {}
+	args_input['batch_size'] = batch_size
+	args_input['encoder_inputs'] = p_encoder_inputs
+	args_input['decoder_inputs'] = p_decoder_inputs
+	args_input['decoder_outputs'] = p_decoder_outputs
+	args_input['encoder_inputs_lengths'] = p_encoder_inputs_lengths
+	args_input['decoder_inputs_lengths'] = p_decoder_inputs_lengths
+	args_input['decoder_outputs_lengths'] = p_decoder_outputs_lengths
+	args_input['embedding_placeholder'] = p_embedding_placeholder
+	args_input['embedding'] = embedding
+	max_batchid = int(np.ceil(X_train.shape[0] / batch_size))
+
+	with tf.variable_scope('root'):
+		train_loss, train_op, embedding_init = model_fn(args_input, mode='train')
+	
+	with tf.variable_scope('root', reuse=True):
+		eval_loss = model_fn(args_input, mode='eval')
+	
+	with tf.variable_scope('root', reuse=True):
+		translations = model_fn(args_input, mode='infer')
+	
+	# session configure for GPU
+	sess_config = tf.ConfigProto()
+	# sess_config.gpu_options.allow_growth = True
+	# sess_config.per_process_gpu_memory_fraction = 0.5
+	with tf.Session(config=sess_config) as sess:
+		saver = tf.train.Saver()
+# 		sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+# 		sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+		# merge all summaries so far and initialize a FileWriter
+		merged = tf.summary.merge_all()
+		writer = tf.summary.FileWriter(logdir=log_dir, graph=sess.graph)
+		
+		sess.run(tf.global_variables_initializer())
+		sess.run(embedding_init, feed_dict={p_embedding_placeholder: embedding})
+		for epoch in range(nb_epoch): 
+			for batchid in range(max_batchid):
+				# training
+	# 			train_batch = train_data.next_batch()
+				encoder_inputs, decoder_inputs, decoder_outputs = get_batch_data_tf_teaching(X_train, Y_train, 
+																							batchid, batch_size, reshape_fn=reshape_data_tf_teach_onehot_y)
+				feed_dict = {
+				    p_encoder_inputs: encoder_inputs,
+				    p_decoder_inputs: decoder_inputs,
+				    p_decoder_outputs: decoder_outputs,
+	# 				p_encoder_inputs_lengths: np.ones((batch_size,)) * cfg.max_input_len,
+	# 				p_decoder_inputs_lengths: np.ones((batch_size,)) * cfg.max_output_len
+					p_encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+					p_decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1),
+	# 				p_decoder_outputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1),
+					p_decoder_outputs_lengths: np.ones((batch_size,)) * cfg.max_output_len,
+				} 
+				loss_train, _ = sess.run([train_loss, train_op], feed_dict=feed_dict)
+ 				print 'batchid = %d, train loss = %f' % (batchid, loss_train)
+# 				summary = sess.run(merged)
+# 				writer.add_summary(summary, epoch * max_batchid + batchid)
+# 				print('epoch {:d}, batch {:d}, cross-entropy {:.5f}'.format(epoch+1, batchid+1, loss_train))
+				# save checkpoints
+				if (batchid + 1) % cfg.save_freq == 0:
+					saver.save(sess, '../checkpoints/', global_step=batchid)
+					print 'model saved'
+				
+	 			# eval
+	 			if (batchid + 1) % 10 == 0:
+	 				encoder_inputs = X_valid
+	 				decoder_inputs, decoder_inputs, decoder_outputs = reshape_data_tf_teach_onehot_y(X_valid, Y_valid)
+	 				feed_dict = {
+	 				    p_encoder_inputs: encoder_inputs,
+	 				    p_decoder_inputs: decoder_inputs,
+	 				   	p_decoder_outputs: decoder_outputs,
+	 				    p_encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+	 				    p_decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1),
+	 				    p_decoder_outputs_lengths: np.ones((batch_size,)) * cfg.max_output_len,
+	 				}
+	 				loss_eval = sess.run(eval_loss, feed_dict=feed_dict)
+	 				print '\t\tbatchid = %d, eval loss = %f' % (batchid, loss_eval)
+				
+	 			# inference
+	 			if (batchid + 1) % 10 == 0:
+	 				encoder_inputs, decoder_inputs, decoder_outputs = reshape_data_tf_teach_onehot_y(X_valid, Y_valid)
+	 				feed_dict = {
+	 				    encoder_inputs: encoder_inputs,
+	 				    decoder_inputs: decoder_inputs,
+	 				    decoder_outputs: decoder_outputs,
+	 				    p_encoder_inputs_lengths: np.sum(encoder_inputs!=cfg.pad_flg_index, axis=1),
+	 				    p_decoder_inputs_lengths: np.sum(decoder_inputs!=cfg.pad_flg_index, axis=1),
+	 				    p_decoder_outputs_lengths: np.ones((batch_size,)) * cfg.max_output_len,
+	 				}
+	 				word_ids = sess.run(translations, feed_dict=feed_dict)
+	 				print 'batchid = %d' % (batchid)
+	 				index = random.randint(0, 39)
+	
+	 				print 'input:', cfg.is2sentence(encoder_inputs[index]), '\n'
+# 	 				print 'output:', vocab.word_ids_to_sentence(
+# 	 				        train_batch.decoder_inputs[index]), '\n'
+	 				print 'predict:', cfg.is2sentence(word_ids[index]), '\n'
 
 def train_onehot(model, log_dir, ret_file_head, X_train, Y_train, X_valid, Y_valid, initial_epoch, batch_size=128, nb_epoch = 100):
 
@@ -1395,7 +1847,7 @@ def gen_model_class_4():
 	model.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
 	return model
 	
-def gen_model_0():
+def gen_model_lstm():
 	model = Sequential()
 	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
 	model.add(LSTM(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
@@ -1405,13 +1857,13 @@ def gen_model_0():
 	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 
-def gen_model_5():
+def gen_model_gru():
 	model = Sequential()
 	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
-	model.add(GRU(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
+	model.add(GRU(cfg.encoder_hidden_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
 	model.add(RepeatVector(cfg.max_output_len))
-	model.add(GRU(cfg.input_vocab_size, return_sequences=True, implementation = 2))
-	model.add(TimeDistributed(Dense(cfg.output_vocab_size, activation='softmax')))
+	model.add(GRU(cfg.decoder_hidden_size, return_sequences=True, implementation = 2))
+	model.add(TimeDistributed(Dense(cfg.vocab_size, activation='softmax')))
 	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 
@@ -1537,7 +1989,7 @@ def experiment_simple_lstm(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
 	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
-	model = gen_model_0()
+	model = gen_model_lstm()
 	print(model.summary())
 	
 	initial_epoch = 0
@@ -1563,7 +2015,7 @@ def experiment_simple_gru(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_f
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
 	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
-	model = gen_model_5()
+	model = gen_model_gru()
 	print(model.summary())
 	
 	initial_epoch = 0
@@ -1587,7 +2039,7 @@ def experiment_simple1_bi():
 # 	x_v = sparse.csr_matrix(x_valid)
 	x_v = x_valid
 	
-	model = gen_model_5()
+	model = gen_model_gru()
 	print(model.summary())
 	
 	train_sparse(model, "simple1_bi_test_ret", x_t, y_train, x_v, y_valid, df_valid, 
@@ -1644,6 +2096,38 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 	train_onehot(model, log_dir, "attention_l1_l1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
 					batch_size=100, nb_epoch = 100 + initial_epoch)
 	
+	
+# def load_tf_model(model_fn, model_file):
+# 	print "Load pre-training weight from file:" + model_file
+# 	model_fn.load_weights(model_file)
+# 	index_start = model_file.find("_weights.") + len('_weights.')
+# 	index_end = model_file.find("-")
+# 	initial_epoch = int(model_file[index_start:index_end])
+	
+def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl1_bl1_c",pre_train_model_file=None):
+	data = np.load("../data/train_cls{}.npz".format(cls_id))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	if input_num > 0:
+		x_t_c = x_t_c[:input_num]
+		y_t = y_t[:input_num]
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=cfg.batch_size, random_state=0)
+
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
+	initial_epoch = 0
+
+	#load pre-training weight
+	if pre_train_model_file is not None:
+		restore_tf_model(model_maker.make_tf_copyNet, pre_train_model_file)
+	log_dir = '../logs/tf/'
+# 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
+# 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
+# 	print(model.summary())
+	train_tf_tailored_teaching_attention(model_maker.make_tf_tailored_seq2seq, log_dir, file_head + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+					batch_size=batch_size, nb_epoch = nb_epoch + initial_epoch)
+
+
+	
 def experiment_teaching1(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_file=None):
 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 	x_t_c = data['x_t_c']
@@ -1654,7 +2138,6 @@ def experiment_teaching1(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_fi
 	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=10000, random_state=0)
 	model = gen_model_teaching_LSTM()
 	print(model.summary())
-	
 	initial_epoch = 0
 	#load pre-training weight
 	if pre_train_model_file is not None:
@@ -1669,6 +2152,8 @@ def experiment_teaching1(nb_epoch=100, input_num=0, cls_id=1, pre_train_model_fi
 # 	print(model.summary())
 	train_teaching_onehot(model, log_dir, "teach_g1_g1_c" + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
 					batch_size=256, nb_epoch = nb_epoch + initial_epoch)
+	
+	
 	
 def experiment_teaching0(nb_epoch=100, input_num=0, add_index_file="../data/en_train_test_ret_err_index", add_cnt=10, cls_id=0, pre_train_model_file=None):
 	data = np.load("../data/en_train.npz".format(cls_id))
@@ -1788,7 +2273,7 @@ def evalute_acc(ret_file, err_file):
 	df_err.to_csv(err_file)
 	print 'The corrected num is:%d, real acc:%f'%(len(df_c), len(df_c)/float(len(df_ret)))
 
-def split_by_classifier(cls_num, classifier, x_t_cls, x_t, df_test, y_t_cls=None, y_t=None):
+def split_by_classifier(classifier, cls_num, x_t_cls, x_t, df_test, y_t_cls=None, y_t=None):
 	
 	
 	index_list = []
@@ -1960,7 +2445,7 @@ def evalute_result(df_ret, err_file):
 	df_err.to_csv(err_file, index=False)
 
 def decode(X, df_test, weights_file):
-	model = gen_model_5()
+	model = gen_model_gru()
 	model.load_weights(weights_file)
 	print "Load Normalization Model..."
 	print(model.summary())
@@ -2314,17 +2799,14 @@ def search_path_beam_teach(decoder, init_state, beam_size):
 
 	return decoded_sentence    
 def run_evalute_and_split():
-	df_test = pd.read_csv('../data/train_filted_classify.csv')
+	df_test = pd.read_csv('../data/train_cls0.csv')
 	df_test['p_new_class'] = -1
 # 	test_feat = np.load('../data/en_train_classify.npz')
 	y_t_cls = data_process.load_numpy_data('../data/train_y_2class.npy')
 	
-	test_feat = np.load("../data/en_train.npz")
+	test_feat = np.load("../data/train_cls0.npz")
 	
 	x_t_cls = test_feat['x_t_c']
-	 
-	
-	test_feat = np.load('../data/en_train.npz')
 	x_t = test_feat['x_t']
 	y_t = test_feat['y_t']
 	
@@ -2335,9 +2817,11 @@ def run_evalute_and_split():
 	mod_classifier = gen_model_class_2()
 	print(mod_classifier.summary())
 	mod_classifier.load_weights("../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5")
-	x_list, cls_df_list, cls_y_list, y_list = split_by_classifier(mod_classifier, x_t_cls, np.hstack([x_t, x_t_cls]), df_test, y_t_cls, y_t)
+	_, x_list, cls_df_list, cls_y_list, y_list = split_by_classifier(mod_classifier, 2, x_t_cls, 
+																	np.hstack([x_t, x_t_cls]), 
+																	df_test, y_t_cls, y_t)
 	
-	
+
 	correct_num1 = len(cls_df_list[0][cls_df_list[0]['new_class1']==1])
 	correct_num2 = len(cls_df_list[1][cls_df_list[1]['new_class1']==2])
 	classify_acc0 = correct_num1 / float(len(cls_df_list[0]))
@@ -2370,10 +2854,20 @@ def display_model():
 if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
-#  	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-# 	df = pd.read_csv('../data/en_test_class.csv')
-# 	data_process.add_class_info('../data/en_train_filted_all.csv', '../data/en_train_filted_class.csv')
-# 	data_process.gen_test_feature(df)
+  	
+#  	df = pd.read_csv('../data/en_train.csv')
+#  	data_process.display_input_token_info(df, 'of')
+	data_process.gen_constant_dict()
+	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
+	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
+	df = pd.read_csv('../data/en_train_filted_class.csv')
+	
+	
+# 	run_evalute_and_split()
+	data_process.gen_train_feature(df)
+	df = pd.read_csv('../data/en_test_class.csv')
+# # 	
+	data_process.gen_test_feature(df)
 # 	data_process.gen_extend_features(df)
 # 	print len(df)
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
@@ -2397,12 +2891,12 @@ if __name__ == "__main__":
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
 	
 # 	run_normalize(False, 10000, False, cfg.data_args_train_no_classify)
-	experiment_simple_gru(nb_epoch=200, input_num=0, cls_id=0, pre_train_model_file="../model/g1_g1_c0_weights.37-0.0142-0.9962-0.0127-0.9966")
+# 	experiment_simple_gru(nb_epoch=100, input_num=10000, cls_id=0, pre_train_model_file=None)
 # 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
-#  	run_evalute_and_split()
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
