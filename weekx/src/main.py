@@ -2111,7 +2111,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 	if input_num > 0:
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=cfg.batch_size, random_state=0)
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=batch_size, random_state=0)
 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	initial_epoch = 0
@@ -2857,17 +2857,17 @@ if __name__ == "__main__":
   	
 #  	df = pd.read_csv('../data/en_train.csv')
 #  	data_process.display_input_token_info(df, 'of')
-	data_process.gen_constant_dict()
-	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
-	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-	df = pd.read_csv('../data/en_train_filted_class.csv')
+# 	data_process.gen_constant_dict()
+# 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
+# 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
+# 	df = pd.read_csv('../data/en_train_filted_class.csv')
 	
 	
 # 	run_evalute_and_split()
-	data_process.gen_train_feature(df)
-	df = pd.read_csv('../data/en_test_class.csv')
-# # 	
-	data_process.gen_test_feature(df)
+# 	data_process.gen_train_feature(df)
+# 	df = pd.read_csv('../data/en_test_class.csv')
+# # # 	
+# 	data_process.gen_test_feature(df)
 # 	data_process.gen_extend_features(df)
 # 	print len(df)
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
