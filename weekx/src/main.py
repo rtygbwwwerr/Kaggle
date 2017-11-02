@@ -715,9 +715,12 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 	dataset = NumpySeqData(cfg.pad_flg_index, cfg.end_flg_index)
 	dataset.load(X_train, Y_train, X_valid, Y_valid, cfg.vocab_i2word)
 	dataset.build()
-# 	data_process.dump(cfg.vocab_i2word, "../data/i2w.dic")
-# 	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
-# 	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
+	
+	data_process.dump(cfg.vocab_i2word, "../data/i2w.dic")
+	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
+	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
+	np.savetxt("../data/X_valid.txt", X_train.astype(np.int32), '%d')
+	np.savetxt("../data/Y_valid.txt", Y_train.astype(np.int32), '%d')
 # 	num_train_examples = X_train.shape[0]
 	max_epoch = nb_epoch
 	max_batchid = int(math.ceil(X_train.shape[0] / float(batch_size)))
@@ -2854,20 +2857,18 @@ def display_model():
 if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	run_evalute()
-  	
-#  	df = pd.read_csv('../data/en_train.csv')
-#  	data_process.display_input_token_info(df, 'of')
+# 	df = pd.read_csv('../data/en_train.csv')
 # 	data_process.gen_constant_dict()
 # 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
 # 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-# 	df = pd.read_csv('../data/en_train_filted_class.csv')
+	df = pd.read_csv('../data/en_train_filted_class.csv')
 	
 	
 # 	run_evalute_and_split()
-# 	data_process.gen_train_feature(df)
-# 	df = pd.read_csv('../data/en_test_class.csv')
+	data_process.gen_train_feature(df)
+	df = pd.read_csv('../data/en_test_class.csv')
 # # # 	
-# 	data_process.gen_test_feature(df)
+	data_process.gen_test_feature(df)
 # 	data_process.gen_extend_features(df)
 # 	print len(df)
 #  	df['len'] = df['before'].apply(lambda x:len(str(x)))
@@ -2896,7 +2897,7 @@ if __name__ == "__main__":
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, pre_train_model_file=None)
+	experiment_teaching_tf(batch_size=100, nb_epoch=100, input_num=100000, cls_id=0, pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')

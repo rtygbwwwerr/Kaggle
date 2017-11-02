@@ -596,9 +596,9 @@ def extract_y_info(data):
 
 	def covert(x):
 		words = str(x).strip().split(' ')
-		values = map(lambda x: cfg.dic_output_word2i.get(x, cfg.copy_flag_index), words)
-		values.insert(0, cfg.dic_output_word2i[cfg.start_flg])
-		values.append(cfg.dic_output_word2i[cfg.end_flg])
+		values = map(lambda x: cfg.w2i(x), words)
+		values.insert(0, cfg.start_flg_index)
+		values.append(cfg.end_flg_index)
 		return values
 	list_values = []
 	for i in range(len(data)):
