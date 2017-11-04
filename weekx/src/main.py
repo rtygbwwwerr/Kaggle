@@ -706,8 +706,16 @@ def decode_sequence_tf(X, model, save_path, beam_size=2):
 	config = tf.ConfigProto()
 	with tf.Session(config=config) as sess:
 		restore_tf_model(sess, save_path)
-		decoded_sentence =  search_path_maxone(x, decoder=decoder, beam_size=beam_size)
-		feed_dict = model.make_feed_dict(data_dict)
+		start_tokens = tf.ones([batch_size], dtype=tf.int32) * self._START
+		beam_decoder = BeamSearchDecoder(
+			beam_decoder_cell,
+			word_embedding,
+			start_tokens,
+			self._EOS,
+			tiled_decoder_initial_state,
+			beam_width,
+			output_layer=out_func,
+		)
 		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
 	return " ".join(decoded_sentence)
 	
@@ -2473,6 +2481,10 @@ def decode(X, df_test, weights_file):
 		print "sentence%d:%s -> %s"%(i, before, after)
 		
 	df_test['p_after'] = pd.Series(normalizations)
+	
+def decode_tf(X, df_test, weights_file):
+	print "unimplement!"
+	
 	
 def decode_teach(X, df_test, weights_file):
 	
