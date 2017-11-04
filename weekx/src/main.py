@@ -757,7 +757,7 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 # 	model = Seq2SeqModel(config, input_batch=None)
 # 	summary_op = model.summary_op
 
-	saver = tf.train.Saver()
+	saver = tf.train.Saver(max_to_keep=100)
 	with tf.Session() as sess:
 # 		summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
 		train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
@@ -824,7 +824,7 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 																						    seq_acc=epoch_acc_seq,
 																						    val_acc=100*right/float(right+wrong),
 																						    )
-			saved_path = saver.save(sess, path)
+			saved_path = saver.save(sess, path, global_step=model.train_step)
 			print "saved check file:" + saved_path
 			print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 	
@@ -2126,14 +2126,14 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 # 	index_end = model_file.find("-")
 # 	initial_epoch = int(model_file[index_start:index_end])
 	
-def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl1_bl1_c",pre_train_model_file=None):
+def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_file=None):
 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 	x_t_c = data['x_t_c']
 	y_t = data['y_t']
 	if input_num > 0:
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=batch_size, random_state=0)
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=100000, random_state=0)
 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	initial_epoch = 0
@@ -2882,8 +2882,8 @@ if __name__ == "__main__":
 # 	data_process.gen_alpha_table()
 # 	data_process.gen_out_vocab()
 # 	run_evalute()
-# 	df = pd.read_csv('../data/en_train.csv')
-# 	data_process.display_token_info(df, "rho", "after")
+# 	df = pd.read_csv('../data/en_test.csv')
+# 	data_process.display_token_info(df, "of", "before")
 # 	data_process.gen_constant_dict()
 # 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
 # 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
@@ -2924,7 +2924,8 @@ if __name__ == "__main__":
 # 	export_feature_data()
 # 	run_evalute()
 # 	experiment_simple_lstm()
-	experiment_teaching_tf(batch_size=100, nb_epoch=100, input_num=100000, cls_id=0, pre_train_model_file=None)
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
+						   file_head="tf_teach_att_bl2_bl1_c", pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
