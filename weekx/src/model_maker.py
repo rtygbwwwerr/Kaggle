@@ -1059,8 +1059,9 @@ def make_tf_tailored_seq2seq(
 				embedding_dim, 
 				vocab_size, 
 				max_decode_iter_size,
-				encoder_cell_type = 'LSTM',
-				decoder_cell_type = 'LSTM',
+				dropout = 0.,
+				encoder_cell_type = 'BN_LSTM',
+				decoder_cell_type = 'BN_LSTM',
 				n_encoder_layers = 1,
 				n_decoder_layers = 1,
 				attention_type = 'Bahdanau',
@@ -1084,6 +1085,7 @@ def make_tf_tailored_seq2seq(
 				batch_size = batch_size, 
 				embedding_dim = embedding_dim, 
 				vocab_size = vocab_size, 
+				dropout = dropout,
 				encoder_cell_type = encoder_cell_type,
 				decoder_cell_type = decoder_cell_type,
 				n_encoder_layers = n_encoder_layers,
@@ -1114,8 +1116,9 @@ class Seq2SeqModel:
 				batch_size, 
 				embedding_dim, 
 				vocab_size, 
-				encoder_cell_type = 'LSTM',
-				decoder_cell_type = 'LSTM',
+				dropout = 0.9,
+				encoder_cell_type = 'BN_LSTM',
+				decoder_cell_type = 'BN_LSTM',
 				n_encoder_layers = 2,
 				n_decoder_layers = 1,
 				attention_type = 'Bahdanau',
@@ -1133,13 +1136,15 @@ class Seq2SeqModel:
 				START=1,
 				EOS=2, 
 				input_batch=None):
-
+	
+	
 		self._PAD = PAD
  		self._START = START
 		self._EOS = EOS
 		self._batch_size = None
 		self._embedding_dim = embedding_dim
 		self._vocab_size = vocab_size
+		self._dropout = dropout
 		self._n_encoder_layers = n_encoder_layers
 		self._n_decoder_layers = n_decoder_layers
 		self._encoder_hidden_size = encoder_hidden_size
@@ -1280,13 +1285,12 @@ class Seq2SeqModel:
 				fw_cells = None
 				bw_cells = None
 				# build cell
-				if self._encoder_cell_type == 'LSTM':
-# 					fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-# 					bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+				if self._encoder_cell_type == 'BN_LSTM':
 					fw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
 					bw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
-					fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=0.9)
-					bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=0.9)
+				elif self._encoder_cell_type == 'LSTM':
+					fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+					bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
 	# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
 	# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
 				elif self._encoder_cell_type == 'GRU':
@@ -1295,7 +1299,9 @@ class Seq2SeqModel:
 					bw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
 				else:
 					raise ValueError
-				
+				if self._dropout > 0.0:
+					fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
+					bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
 				(fw_output, bw_output), (fw_final_state, bw_final_state) =\
 					tf.nn.bidirectional_dynamic_rnn(
 						fw_cells, bw_cells,
@@ -1365,16 +1371,21 @@ class Seq2SeqModel:
 				state_size = state_size * 2 * self._n_encoder_layers
 			
 			cells = None
-			# build cell
-			if self._decoder_cell_type == 'LSTM':
-# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_decoder_layers)]
+			# build cell 
+			#because decode layer is in front of the whole network, gradient vanish issue would not be serious
+			#base on efficiency, we do not add batch normalizatioin
+			if self._decoder_cell_type == 'LSTM' or self._decoder_cell_type == 'BN_LSTM':
 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=0.0)
-				cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=0.9)
+# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_decoder_layers)]
+# 			elif self._decoder_cell_type == 'BN_LSTM':
+# 				cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
 			elif self._decoder_cell_type == 'GRU':
 # 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_decoder_layers)]
 				cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())	
 			else:
 				raise ValueError
+			if self._dropout > 0.0:
+				cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
 # 			decoder_cell  = tf.nn.rnn_cell.MultiRNNCell(cells)
 			decoder_cell  = cells
 			original_decoder_cell = decoder_cell
