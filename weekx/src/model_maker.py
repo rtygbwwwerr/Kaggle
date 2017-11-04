@@ -21,6 +21,7 @@ from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, 
 									   BasicDecoder, BeamSearchDecoder, dynamic_decode, \
 									   TrainingHelper, sequence_loss, tile_batch, \
 									   BahdanauAttention, LuongAttention
+from nbformat.v4.tests.nbexamples import cells
 
 									   
 class CopyNetTrainingHelper(seq2seq.TrainingHelper):
@@ -1059,7 +1060,8 @@ def make_tf_tailored_seq2seq(
 				embedding_dim, 
 				vocab_size, 
 				max_decode_iter_size,
-				dropout = 0.,
+				is_training = True,
+				dropout = 0.9,
 				encoder_cell_type = 'BN_LSTM',
 				decoder_cell_type = 'BN_LSTM',
 				n_encoder_layers = 1,
@@ -1085,6 +1087,7 @@ def make_tf_tailored_seq2seq(
 				batch_size = batch_size, 
 				embedding_dim = embedding_dim, 
 				vocab_size = vocab_size, 
+				is_training = is_training,
 				dropout = dropout,
 				encoder_cell_type = encoder_cell_type,
 				decoder_cell_type = decoder_cell_type,
@@ -1116,6 +1119,7 @@ class Seq2SeqModel:
 				batch_size, 
 				embedding_dim, 
 				vocab_size, 
+				is_training = True,
 				dropout = 0.9,
 				encoder_cell_type = 'BN_LSTM',
 				decoder_cell_type = 'BN_LSTM',
@@ -1137,7 +1141,7 @@ class Seq2SeqModel:
 				EOS=2, 
 				input_batch=None):
 	
-	
+		self._is_training = is_training
 		self._PAD = PAD
  		self._START = START
 		self._EOS = EOS
@@ -1260,6 +1264,50 @@ class Seq2SeqModel:
 			)
 
 		return seq_loss
+	def _create_RNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
+		cells = None
+		# build cell
+		if self._encoder_cell_type == 'BN_LSTM':
+			cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
+		elif self._encoder_cell_type == 'LSTM':
+			cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
+# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
+		elif self._encoder_cell_type == 'GRU':
+# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
+			cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
+
+		else:
+			raise ValueError
+		if self._dropout > 0.0:
+			cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=dropout)
+		cells  = tf.nn.rnn_cell.MultiRNNCell([cells] * n_encoder_layers)
+		return cells
+	
+	def _create_biRNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
+		fw_cells = None
+		bw_cells = None
+		# build cell
+		if self._encoder_cell_type == 'BN_LSTM':
+			fw_cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
+			bw_cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
+		elif self._encoder_cell_type == 'LSTM':
+			fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+			bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
+# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
+		elif self._encoder_cell_type == 'GRU':
+# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
+			fw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
+			bw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
+		else:
+			raise ValueError
+		if self._dropout > 0.0:
+			fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=dropout)
+			bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=dropout)
+		fw_cells  = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
+		bw_cells  = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
+		return fw_cells, bw_cells
 	
 	def _build_encoder(self, encoder_inputs, encoder_lengths):
 		with tf.variable_scope('word_embedding'):
@@ -1274,34 +1322,10 @@ class Seq2SeqModel:
 			encoder_input_vectors = tf.nn.embedding_lookup(word_embedding, encoder_inputs)
 
 		with tf.variable_scope('encoder'):
-			state_size = self._encoder_hidden_size
-# 			batch_size = self._batch_size
-			
-			
-
-# 			encoder_cell  = tf.nn.rnn_cell.MultiRNNCell(cells)
-# 			encoder_cell  = cells
 			if self._is_bidrection:
-				fw_cells = None
-				bw_cells = None
-				# build cell
-				if self._encoder_cell_type == 'BN_LSTM':
-					fw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
-					bw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
-				elif self._encoder_cell_type == 'LSTM':
-					fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-					bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-	# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
-	# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
-				elif self._encoder_cell_type == 'GRU':
-	# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
-					fw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-					bw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-				else:
-					raise ValueError
-				if self._dropout > 0.0:
-					fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
-					bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
+				fw_cells, bw_cells = self._create_biRNNLayers(self._encoder_hidden_size, self._dropout, 
+																self._n_encoder_layers, self._is_training)
+				
 				(fw_output, bw_output), (fw_final_state, bw_final_state) =\
 					tf.nn.bidirectional_dynamic_rnn(
 						fw_cells, bw_cells,
@@ -1312,50 +1336,30 @@ class Seq2SeqModel:
 					)
 
 				encoder_outputs = tf.concat([fw_output, bw_output], 2)
-
+				fw_final_state = fw_final_state[-1]
+				bw_final_state = bw_final_state[-1]
+				
 				if isinstance(fw_final_state, LSTMStateTuple):
 					encoder_state_c = tf.concat(
 						[fw_final_state.c, bw_final_state.c], 1)
 					encoder_state_h = tf.concat(
 						[fw_final_state.h, bw_final_state.h], 1)
-					encoder_state_c.set_shape([None, state_size * 2])
-					encoder_state_h.set_shape([None, state_size * 2])
-
 					encoder_final_state = LSTMStateTuple(encoder_state_c,
 														 encoder_state_h)
 				else:
-# 					fw = fw_final_state[0]
-# 					bw = bw_final_state[0]
-# 					for i in range(1, self._n_encoder_layers):
-# 						fw_final_state[i]
 					encoder_final_state = tf.concat(
 						[fw_final_state, bw_final_state], 1)
-# 					encoder_final_state = tf.concat(
-# 						[encoder_final_state[0], encoder_final_state[1]], 1)
-					encoder_final_state.set_shape([None, encoder_final_state.shape[1]])
 
 			else:
-				encoder_cell = None
-				# build cell
-				if self._encoder_cell_type == 'LSTM':
-					encoder_cell = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-	# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
-	# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
-				elif self._encoder_cell_type == 'GRU':
-	# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
-					encoder_cell = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-
-				else:
-					raise ValueError
+				cells = self._create_RNNLayers(self._encoder_hidden_size, self._dropout, 
+																self._n_encoder_layers, self._is_training)
 				encoder_outputs, encoder_final_state = tf.nn.dynamic_rnn(
-					encoder_cell,
+					cells,
 					encoder_input_vectors,
 					sequence_length=encoder_lengths,
 					time_major=False,
 					dtype=tf.float32
 				)
-# 				encoder_final_state.set_shape([batch_size, state_size])
-
 			return encoder_outputs, encoder_final_state
 		
 	def _build_decoder(self, encoder_outputs, encoder_final_state, encoder_lengths,
@@ -1368,7 +1372,7 @@ class Seq2SeqModel:
 		with tf.variable_scope('decoder_cell'):
 			state_size = self._decoder_hidden_size
 			if self._is_bidrection:
-				state_size = state_size * 2 * self._n_encoder_layers
+				state_size = state_size * 2
 			
 			cells = None
 			# build cell 
@@ -1386,9 +1390,8 @@ class Seq2SeqModel:
 				raise ValueError
 			if self._dropout > 0.0:
 				cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
-# 			decoder_cell  = tf.nn.rnn_cell.MultiRNNCell(cells)
-			decoder_cell  = cells
-			original_decoder_cell = decoder_cell
+#  			cells = tf.nn.rnn_cell.MultiRNNCell([cells] * self._n_decoder_layers)
+			original_decoder_cell = cells
 
 			with tf.variable_scope('beam_inputs'):
 				tiled_encoder_outputs = tile_batch(encoder_outputs, beam_width)
@@ -1420,7 +1423,7 @@ class Seq2SeqModel:
 						name="attention_fn"
 					)
 					decoder_cell = AttentionWrapper(
-						decoder_cell,
+						cells,
 						attention_mechanism,
 						attention_layer_size=self._attention_depth,
 						output_attention=True,

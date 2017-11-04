@@ -732,6 +732,9 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 # 	steps_in_epoch = int(floor(num_train_examples / batch_size))
 
 	model = model_fn(
+						n_encoder_layers = cfg.n_encoder_layers,
+						n_decoder_layers = cfg.n_decoder_layers,
+						dropout = cfg.ed_dropout,
 						encoder_hidden_size=cfg.encoder_hidden_size, 
 						decoder_hidden_size=cfg.decoder_hidden_size, 
 						batch_size=batch_size, 
@@ -2909,7 +2912,7 @@ if __name__ == "__main__":
 # 	export_feature_data()
 # 	run_evalute()
 # 	experiment_simple_lstm()
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, pre_train_model_file=None)
+	experiment_teaching_tf(batch_size=100, nb_epoch=100, input_num=100000, cls_id=0, pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')

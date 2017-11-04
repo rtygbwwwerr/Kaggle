@@ -95,8 +95,8 @@ class Config(object):
 	n_gpus = 1
 	input_hidden_dim = 512
 	encoder_hidden_size = 250
-	n_encoder_layer = 1
-	n_decoder_layer = 1
+	n_encoder_layers = 2
+	n_decoder_layers = 1
 	decoder_hidden_size = encoder_hidden_size
 	space_letter = 0
 # 	boundary_word = -3
@@ -131,6 +131,7 @@ class Config(object):
 	hidden_size = 128 
 	drop_prob_1 = 0.25 # dropout after pooling with probability 0.25
 	drop_prob_2 = 0.5 # dropout in the FC layer with probability 0.5
+	ed_dropout = 0.9
 	pool_size = 2
 	l2_lambda = 0.0001
 	conv_depth = 32 # use 32 kernels in both convolutional layers
