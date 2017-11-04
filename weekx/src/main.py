@@ -309,7 +309,7 @@ def generator_onehot(X, y, batch_size=128, shuffle=True):
 		np.random.shuffle(sample_index)
 	while True:
 		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
-		X_batch = np.zeros((batch_size, X.shape[1], cfg.input_vocab_size))
+		X_batch = np.zeros((batch_size, X.shape[1], cfg.vocab_size))
 		y_batch = np.zeros((batch_size, y.shape[1], cfg.vocab_size))
 		# reshape X to be [samples, time steps, features]
 		for i, j in enumerate(batch_index):
@@ -384,7 +384,7 @@ def reshape_data_teaching_onehot(X, y):
 	return X_out, X_d_out, y_out
 
 def reshape_data_onehot(X, y):
-	X_out = np.zeros((X.shape[0], X.shape[1], cfg.input_vocab_size))
+	X_out = np.zeros((X.shape[0], X.shape[1], cfg.vocab_size))
 	for i in range(X.shape[0]):
 		for t in range(X.shape[1]):
 			X_out[i,t,X[i,t]] = 1.0
@@ -726,8 +726,8 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 	np.savetxt("../data/Y_valid.txt", Y_train.astype(np.int32), '%d')
 # 	num_train_examples = X_train.shape[0]
 	max_epoch = nb_epoch
-	max_batchid = int(math.ceil(X_train.shape[0] / float(batch_size)))
-	print "Total epoch:{0}, step num of each epoch:{1}".format(max_epoch, max_batchid)
+	step_nums = int(math.ceil(X_train.shape[0] / float(batch_size)))
+	print "Total epoch:{0}, step num of each epoch:{1}".format(max_epoch, step_nums)
 	
 # 	steps_in_epoch = int(floor(num_train_examples / batch_size))
 
@@ -764,28 +764,33 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 # 				feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
 				_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
 				    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.summary_op], feed_dict)
-				
+
 				if (step + 1) % 1 == 0:
-# 					a0 = learn_rate
-# 					b1 = model._opt._beta1_power.eval(sess)
-# 					b2 = model._opt._beta2_power.eval(sess)
-# 					cur_lr = a0 * (1-b2)**0.5 / (1-b1)
-					print "Step {cur_step:6d} / {all_step:6d} ... Loss: {loss:.5f}, token_acc:{token_acc:.5f}, seq_acc:{seq_acc:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(cur_step=step+1,
-																				 all_step=max_batchid,
-				                    											 loss=loss_value,
-				                    											 token_acc=accuracy,
-				                    											 seq_acc=accuracy_seqs,
-				                    											 grad = grads,
-				                    											 lr=learn_rate)
-				
-					dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
+					
 					epoch_loss += loss_value
 					epoch_acc += accuracy
 					epoch_acc_seq += accuracy_seqs
+					avg_loss = epoch_loss / (step + 1)
+					avg_acc = epoch_acc / (step + 1)
+					avg_acc_seq = epoch_acc_seq / (step + 1)
+					
+					print "Step {cur_step:6d} / {all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(cur_step=step+1,
+																				 all_step=step_nums,
+																				 loss=loss_value,
+				                    											 token_acc=accuracy,
+				                    											 seq_acc=accuracy_seqs,
+				                    											 loss_avg=avg_loss,
+				                    											 acc_avg=avg_acc,
+				                    											 seq_acc_avg=avg_acc_seq,
+				                    											 grad = grads,
+				                    											 lr=learn_rate)
+				
+# 					dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
+
 					train_summary_writer.add_summary(summaries, g_step)
-			epoch_loss = epoch_loss / (max_batchid + 1.0)
-			epoch_acc = epoch_acc / (max_batchid + 1.0)
-			epoch_acc_seq = epoch_acc_seq / (max_batchid + 1.0)
+			epoch_loss = epoch_loss / float(step_nums)
+			epoch_acc = epoch_acc / float(step_nums)
+			epoch_acc_seq = epoch_acc_seq / float(step_nums)
 			right, wrong = 0.0, 0.0
 			
 			for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
@@ -1855,11 +1860,11 @@ def gen_model_class_4():
 	
 def gen_model_lstm():
 	model = Sequential()
-	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
-	model.add(LSTM(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.input_vocab_size)))
+	model.add(Masking(mask_value=0, input_shape=(cfg.max_input_len, cfg.vocab_size)))
+	model.add(LSTM(cfg.input_vocab_size, implementation = 2, input_shape=(cfg.max_input_len, cfg.vocab_size)))
 	model.add(RepeatVector(cfg.max_output_len))
 	model.add(LSTM(cfg.input_vocab_size, return_sequences=True, implementation = 2))
-	model.add(TimeDistributed(Dense(cfg.output_vocab_size, activation='softmax')))
+	model.add(TimeDistributed(Dense(cfg.vocab_size, activation='softmax')))
 	model.compile(loss='categorical_crossentropy', optimizer='Adagrad', metrics=['accuracy'])
 	return model
 
@@ -2903,7 +2908,8 @@ if __name__ == "__main__":
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
-	experiment_teaching_tf(batch_size=100, nb_epoch=100, input_num=100000, cls_id=0, pre_train_model_file=None)
+# 	experiment_simple_lstm()
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')

@@ -18,11 +18,11 @@ from tensorflow.python.layers import core as layers_core
 from tensorflow.contrib.rnn import LSTMCell, LSTMStateTuple, GRUCell
 from tensorflow.contrib.layers import xavier_initializer
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, \
-                                       BasicDecoder, BeamSearchDecoder, dynamic_decode, \
-                                       TrainingHelper, sequence_loss, tile_batch, \
-                                       BahdanauAttention, LuongAttention
+									   BasicDecoder, BeamSearchDecoder, dynamic_decode, \
+									   TrainingHelper, sequence_loss, tile_batch, \
+									   BahdanauAttention, LuongAttention
 
-                                       
+									   
 class CopyNetTrainingHelper(seq2seq.TrainingHelper):
 	"""A helper for use during training.  Only reads inputs.
 	
@@ -30,21 +30,21 @@ class CopyNetTrainingHelper(seq2seq.TrainingHelper):
 	"""
 	
 	def __init__(self, inputs, encoder_inputs_ids, sequence_length, 
-	                                time_major=False, name=None):
+									time_major=False, name=None):
 		"""Initializer.
 		
 		Args:
 		  inputs: A (structure of) input tensors.
 		  sequence_length: An int32 vector tensor.
 		  time_major: Python bool. Whether the tensors in `inputs` are time major.
-		    If `False` (default), they are assumed to be batch major.
+			If `False` (default), they are assumed to be batch major.
 		  name: Name scope for any created operations.
 		
 		Raises:
 		  ValueError: if `sequence_length` is not a 1D tensor.
 		"""
 		super(CopyNetTrainingHelper, self).__init__(inputs, sequence_length,
-		        time_major=time_major, name=name)
+				time_major=time_major, name=name)
 		self.encoder_inputs_ids = encoder_inputs_ids
 
 class CopyNetDecoder(seq2seq.BasicDecoder):
@@ -54,7 +54,7 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 	https://arxiv.org/abs/1603.06393
 	"""
 	def __init__(self, config, cell, helper, initial_state, 
-		                            encoder_outputs, output_layer):
+									encoder_outputs, output_layer):
 		"""Initialize CopyNetDecoder.
 		"""
 		if output_layer is None:
@@ -63,18 +63,18 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 		self.encoder_outputs = encoder_outputs
 		encoder_hidden_size = self.encoder_outputs.shape[-1].value
 		self.copy_weight = tf.get_variable('copy_weight', 
-		                        [encoder_hidden_size, cell.output_size])
+								[encoder_hidden_size, cell.output_size])
 		self.config = config
 		super(CopyNetDecoder, self).__init__(cell, helper, initial_state, 
-		                            output_layer=output_layer)
+									output_layer=output_layer)
 		
 	@property
 	def output_size(self):
 		# Return the cell output and the id
 		return seq2seq.BasicDecoderOutput(
-		    rnn_output=self._rnn_output_size() + 
-		                tf.convert_to_tensor(self.config.encoder_max_seq_len),
-		    sample_id=tensor_shape.TensorShape([]))
+			rnn_output=self._rnn_output_size() + 
+						tf.convert_to_tensor(self.config.encoder_max_seq_len),
+			sample_id=tensor_shape.TensorShape([]))
 	
 	def shape(self, tensor):
 		s = tensor.get_shape()
@@ -84,8 +84,8 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 		# TODO is this correct? should verify the following code.
 		"""
 		B is batch_size, V is vocab_size, L is length of every input_id
-		print genreate_scores.shape     --> (B, V)
-		print copy_scores.shape         --> (B, L)
+		print genreate_scores.shape	 --> (B, V)
+		print copy_scores.shape		 --> (B, L)
 		print self._helper.inputs_ids   --> (B, L)
 		"""
 		print generate_scores.shape
@@ -97,17 +97,17 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 		# choice one, move generate_scores to copy_scores
 		expanded_generate_scores = tf.expand_dims(generate_scores, 1) # (B,1,V)
 		actual_copy_scores = copy_scores + tf.reduce_sum(
-		                        mask * expanded_generate_scores, 2)
+								mask * expanded_generate_scores, 2)
 		actual_generate_scores = generate_scores - tf.reduce_sum(
-		                        mask * expanded_generate_scores, 1)
+								mask * expanded_generate_scores, 1)
 		
 		# choice two, move copy_scores to generate_scores
 		'''
 		expanded_copy_scores = tf.expand_dims(copy_scores, 2)
 		acutual_generate_scores = generate_scores + tf.reduce_sum(
-		                            mask * expanded_copy_scores, 1)
+									mask * expanded_copy_scores, 1)
 		acutual_copy_scores = copy_scores - tf.reduce_sum(
-		                            mask * expanded_copy_scores, 2)
+									mask * expanded_copy_scores, 2)
 		'''
 		
 		mix_scores = tf.concat([actual_generate_scores, actual_copy_scores], 1)
@@ -122,15 +122,15 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 	def step(self, time, inputs, state, name=None):
 		"""Perform a decoding step.
 	
-	    Args:
-	    time: scalar `int32` tensor.
-	    inputs: A (structure of) input tensors.
-	    state: A (structure of) state tensors and TensorArrays.
-	    name: Name scope for any created operations.
+		Args:
+		time: scalar `int32` tensor.
+		inputs: A (structure of) input tensors.
+		state: A (structure of) state tensors and TensorArrays.
+		name: Name scope for any created operations.
 	
-	    Returns:
-	    `(outputs, next_state, next_inputs, finished)`.
-	    """
+		Returns:
+		`(outputs, next_state, next_inputs, finished)`.
+		"""
 		with ops.name_scope(name, "BasicDecoderStep", (time, inputs, state)):
 			cell_outputs, cell_state = self._cell(inputs, state)
 			generate_scores = self._output_layer(cell_outputs)
@@ -144,15 +144,218 @@ class CopyNetDecoder(seq2seq.BasicDecoder):
 			mix_scores = self._mix(generate_scores, copy_scores)
 			
 			sample_ids = self._helper.sample(
-			    time=time, outputs=mix_scores, state=cell_state)
+				time=time, outputs=mix_scores, state=cell_state)
 			# sample_ids are not always valid.. TODO
 			(finished, next_inputs, next_state) = self._helper.next_inputs(
-		        time=time,
-		        outputs=mix_scores,
-		        state=cell_state,
-		        sample_ids=sample_ids)
+				time=time,
+				outputs=mix_scores,
+				state=cell_state,
+				sample_ids=sample_ids)
 		outputs = seq2seq.BasicDecoderOutput(mix_scores, sample_ids)
 		return (outputs, next_state, next_inputs, finished)
+
+# Thanks to 'initializers_enhanced.py' of Project RNN Enhancement:
+# https://github.com/nicolas-ivanov/Seq2Seq_Upgrade_TensorFlow/blob/master/rnn_enhancement/initializers_enhanced.py
+def orthogonal_initializer(scale=1.0):
+	def _initializer(shape, dtype=tf.float32, partition_info=None):
+		if partition_info is not None:
+			ValueError(
+				"Do not know what to do with partition_info in BN_LSTMCell")
+		flat_shape = (shape[0], np.prod(shape[1:]))
+		a = np.random.normal(0.0, 1.0, flat_shape)
+		u, _, v = np.linalg.svd(a, full_matrices=False)
+		q = u if u.shape == flat_shape else v
+		q = q.reshape(shape)
+		return tf.constant(scale * q[:shape[0], :shape[1]], dtype=dtype)
+	return _initializer
+
+
+# Thanks to https://github.com/OlavHN/bnlstm
+def batch_norm(inputs, name_scope, is_training, epsilon=1e-3, decay=0.99):
+	with tf.variable_scope(name_scope):
+		size = inputs.get_shape().as_list()[1]
+
+		scale = tf.get_variable(
+			'scale', [size], initializer=tf.constant_initializer(0.1))
+		offset = tf.get_variable('offset', [size])
+
+		population_mean = tf.get_variable(
+			'population_mean', [size],
+			initializer=tf.zeros_initializer(), trainable=False)
+		population_var = tf.get_variable(
+			'population_var', [size],
+			initializer=tf.ones_initializer(), trainable=False)
+		batch_mean, batch_var = tf.nn.moments(inputs, [0])
+
+		# The following part is based on the implementation of :
+		# https://github.com/cooijmanstim/recurrent-batch-normalization
+		train_mean_op = tf.assign(
+			population_mean,
+			population_mean * decay + batch_mean * (1 - decay))
+		train_var_op = tf.assign(
+			population_var, population_var * decay + batch_var * (1 - decay))
+
+		if is_training is True:
+			with tf.control_dependencies([train_mean_op, train_var_op]):
+				return tf.nn.batch_normalization(
+					inputs, batch_mean, batch_var, offset, scale, epsilon)
+		else:
+			return tf.nn.batch_normalization(
+				inputs, population_mean, population_var, offset, scale,
+				epsilon)
+
+
+class BN_LSTMCell(tf.nn.rnn_cell.RNNCell):
+	"""LSTM cell with Recurrent Batch Normalization.
+	This implementation is based on:
+		 http://arxiv.org/abs/1603.09025
+	This implementation is also based on:
+		 https://github.com/OlavHN/bnlstm
+		 https://github.com/nicolas-ivanov/Seq2Seq_Upgrade_TensorFlow
+	"""
+
+	def __init__(self, num_units, is_training,
+				 use_peepholes=False, cell_clip=None,
+				 initializer=orthogonal_initializer(),
+				 num_proj=None, proj_clip=None,
+				 forget_bias=1.0,
+				 state_is_tuple=True,
+				 activation=tf.tanh):
+		"""Initialize the parameters for an LSTM cell.
+		Args:
+		  num_units: int, The number of units in the LSTM cell.
+		  is_training: bool, set True when training.
+		  use_peepholes: bool, set True to enable diagonal/peephole
+			connections.
+		  cell_clip: (optional) A float value, if provided the cell state
+			is clipped by this value prior to the cell output activation.
+		  initializer: (optional) The initializer to use for the weight
+			matrices.
+		  num_proj: (optional) int, The output dimensionality for
+			the projection matrices.  If None, no projection is performed.
+		  forget_bias: Biases of the forget gate are initialized by default
+			to 1 in order to reduce the scale of forgetting at the beginning of
+			the training.
+		  state_is_tuple: If True, accepted and returned states are 2-tuples of
+			the `c_state` and `m_state`.  If False, they are concatenated
+			along the column axis.
+		  activation: Activation function of the inner states.
+		"""
+		if not state_is_tuple:
+			tf.logging.log_first_n(
+				tf.logging.WARN,
+				"%s: Using a concatenated state is slower and "
+				" will soon be deprecated.  Use state_is_tuple=True.", 1, self)
+
+		self.num_units = num_units
+		self.is_training = is_training
+		self.use_peepholes = use_peepholes
+		self.cell_clip = cell_clip
+		self.num_proj = num_proj
+		self.proj_clip = proj_clip
+		self.initializer = initializer
+		self.forget_bias = forget_bias
+		self._state_is_tuple = state_is_tuple
+		self.activation = activation
+
+		if num_proj:
+			self._state_size = (
+				LSTMStateTuple(num_units, num_proj)
+				if state_is_tuple else num_units + num_proj)
+			self._output_size = num_proj
+		else:
+			self._state_size = (
+				LSTMStateTuple(num_units, num_units)
+				if state_is_tuple else 2 * num_units)
+			self._output_size = num_units
+
+	@property
+	def state_size(self):
+		return self._state_size
+
+	@property
+	def output_size(self):
+		return self._output_size
+
+	def __call__(self, inputs, state, scope=None):
+
+		num_proj = self.num_units if self.num_proj is None else self.num_proj
+
+		if self._state_is_tuple:
+			(c_prev, h_prev) = state
+		else:
+			c_prev = tf.slice(state, [0, 0], [-1, self.num_units])
+			h_prev = tf.slice(state, [0, self.num_units], [-1, num_proj])
+
+		dtype = inputs.dtype
+		input_size = inputs.get_shape().with_rank(2)[1]
+
+		with tf.variable_scope(scope or type(self).__name__):
+			if input_size.value is None:
+				raise ValueError(
+					"Could not infer input size from inputs.get_shape()[-1]")
+
+			W_xh = tf.get_variable(
+				'W_xh',
+				[input_size, 4 * self.num_units],
+				initializer=self.initializer)
+			W_hh = tf.get_variable(
+				'W_hh',
+				[num_proj, 4 * self.num_units],
+				initializer=self.initializer)
+			bias = tf.get_variable('B', [4 * self.num_units])
+
+			xh = tf.matmul(inputs, W_xh)
+			hh = tf.matmul(h_prev, W_hh)
+
+			bn_xh = batch_norm(xh, 'xh', self.is_training)
+			bn_hh = batch_norm(hh, 'hh', self.is_training)
+
+			# i:input gate, j:new input, f:forget gate, o:output gate
+			lstm_matrix = tf.nn.bias_add(tf.add(bn_xh, bn_hh), bias)
+			i, j, f, o = tf.split(
+				value=lstm_matrix, num_or_size_splits=4, axis=1)
+
+			# Diagonal connections
+			if self.use_peepholes:
+				w_f_diag = tf.get_variable(
+					"W_F_diag", shape=[self.num_units], dtype=dtype)
+				w_i_diag = tf.get_variable(
+					"W_I_diag", shape=[self.num_units], dtype=dtype)
+				w_o_diag = tf.get_variable(
+					"W_O_diag", shape=[self.num_units], dtype=dtype)
+
+			if self.use_peepholes:
+				c = c_prev * tf.sigmoid(f + self.forget_bias +
+										w_f_diag * c_prev) + \
+					tf.sigmoid(i + w_i_diag * c_prev) * self.activation(j)
+			else:
+				c = c_prev * tf.sigmoid(f + self.forget_bias) + \
+					tf.sigmoid(i) * self.activation(j)
+
+			if self.cell_clip is not None:
+				c = tf.clip_by_value(c, -self.cell_clip, self.cell_clip)
+
+			bn_c = batch_norm(c, 'cell', self.is_training)
+
+			if self.use_peepholes:
+				h = tf.sigmoid(o + w_o_diag * c) * self.activation(bn_c)
+			else:
+				h = tf.sigmoid(o) * self.activation(bn_c)
+
+			if self.num_proj is not None:
+				w_proj = tf.get_variable(
+					"W_P", [self.num_units, num_proj], dtype=dtype)
+
+				h = tf.matmul(h, w_proj)
+				if self.proj_clip is not None:
+					h = tf.clip_by_value(h, -self.proj_clip, self.proj_clip)
+
+			new_state = (LSTMStateTuple(c, h)
+						 if self._state_is_tuple else tf.concat(1, [c, h]))
+
+			return h, new_state
+
 
 class LSTMDecoderCell(ExtendedRNNCell):
 
@@ -172,15 +375,15 @@ class LSTMDecoderCell(ExtendedRNNCell):
 		c_tm1 = Input(batch_shape=(input_shape[0], hidden_dim))
 		
 		W1 = Dense(hidden_dim * 4,
-		           kernel_initializer=self.kernel_initializer,
-		           kernel_regularizer=self.kernel_regularizer,
-		           use_bias=False)
+				   kernel_initializer=self.kernel_initializer,
+				   kernel_regularizer=self.kernel_regularizer,
+				   use_bias=False)
 		W2 = Dense(output_dim,
-		           kernel_initializer=self.kernel_initializer,
-		           kernel_regularizer=self.kernel_regularizer,)
+				   kernel_initializer=self.kernel_initializer,
+				   kernel_regularizer=self.kernel_regularizer,)
 		U = Dense(hidden_dim * 4,
-		          kernel_initializer=self.kernel_initializer,
-		          kernel_regularizer=self.kernel_regularizer,)
+				  kernel_initializer=self.kernel_initializer,
+				  kernel_regularizer=self.kernel_regularizer,)
 		
 		z = add([W1(x), U(h_tm1)])
 		
@@ -218,17 +421,17 @@ class AttentionDecoderCell(ExtendedRNNCell):
 		c_tm1 = Input(batch_shape=(input_shape[0], hidden_dim))
 		
 		W1 = Dense(hidden_dim * 4,
-		           kernel_initializer=self.kernel_initializer,
-		           kernel_regularizer=self.kernel_regularizer)
+				   kernel_initializer=self.kernel_initializer,
+				   kernel_regularizer=self.kernel_regularizer)
 		W2 = Dense(output_dim,
-		           kernel_initializer=self.kernel_initializer,
-		           kernel_regularizer=self.kernel_regularizer)
+				   kernel_initializer=self.kernel_initializer,
+				   kernel_regularizer=self.kernel_regularizer)
 		W3 = Dense(1,
-		           kernel_initializer=self.kernel_initializer,
-		           kernel_regularizer=self.kernel_regularizer)
+				   kernel_initializer=self.kernel_initializer,
+				   kernel_regularizer=self.kernel_regularizer)
 		U = Dense(hidden_dim * 4,
-		          kernel_initializer=self.kernel_initializer,
-		          kernel_regularizer=self.kernel_regularizer)
+				  kernel_initializer=self.kernel_initializer,
+				  kernel_regularizer=self.kernel_regularizer)
 		print x.shape
 		print c_tm1.shape
 		print input_length
@@ -260,62 +463,62 @@ class AttentionDecoderCell(ExtendedRNNCell):
 
 
 def make_Seq2Seq(output_dim, output_length, batch_input_shape=None,
-            input_shape=None, batch_size=None, input_dim=None, input_length=None,
-            hidden_dim=None, depth=1, broadcast_state=True, unroll=False,
-            stateful=False, inner_broadcast_state=True, teacher_force=False,
-            peek=False, dropout=0.):
+			input_shape=None, batch_size=None, input_dim=None, input_length=None,
+			hidden_dim=None, depth=1, broadcast_state=True, unroll=False,
+			stateful=False, inner_broadcast_state=True, teacher_force=False,
+			peek=False, dropout=0.):
 
 	'''
-    Seq2seq model based on [1] and [2].
-    This model has the ability to transfer the encoder hidden state to the decoder's
-    hidden state(specified by the broadcast_state argument). Also, in deep models
-    (depth > 1), the hidden state is propogated throughout the LSTM stack(specified by
-    the inner_broadcast_state argument. You can switch between [1] based model and [2]
-    based model using the peek argument.(peek = True for [2], peek = False for [1]).
-    When peek = True, the decoder gets a 'peek' at the context vector at every timestep.
+	Seq2seq model based on [1] and [2].
+	This model has the ability to transfer the encoder hidden state to the decoder's
+	hidden state(specified by the broadcast_state argument). Also, in deep models
+	(depth > 1), the hidden state is propogated throughout the LSTM stack(specified by
+	the inner_broadcast_state argument. You can switch between [1] based model and [2]
+	based model using the peek argument.(peek = True for [2], peek = False for [1]).
+	When peek = True, the decoder gets a 'peek' at the context vector at every timestep.
 
-    [1] based model:
+	[1] based model:
 
-            Encoder:
-            X = Input sequence
-            C = LSTM(X); The context vector
+			Encoder:
+			X = Input sequence
+			C = LSTM(X); The context vector
 
-            Decoder:
-    y(t) = LSTM(s(t-1), y(t-1)); Where s is the hidden state of the LSTM (h and c)
-    y(0) = LSTM(s0, C); C is the context vector from the encoder.
+			Decoder:
+	y(t) = LSTM(s(t-1), y(t-1)); Where s is the hidden state of the LSTM (h and c)
+	y(0) = LSTM(s0, C); C is the context vector from the encoder.
 
-    [2] based model:
+	[2] based model:
 
-            Encoder:
-            X = Input sequence
-            C = LSTM(X); The context vector
+			Encoder:
+			X = Input sequence
+			C = LSTM(X); The context vector
 
-            Decoder:
-    y(t) = LSTM(s(t-1), y(t-1), C)
-    y(0) = LSTM(s0, C, C)
-    Where s is the hidden state of the LSTM (h and c), and C is the context vector
-    from the encoder.
+			Decoder:
+	y(t) = LSTM(s(t-1), y(t-1), C)
+	y(0) = LSTM(s0, C, C)
+	Where s is the hidden state of the LSTM (h and c), and C is the context vector
+	from the encoder.
 
-    Arguments:
+	Arguments:
 
-    output_dim : Required output dimension.
-    hidden_dim : The dimension of the internal representations of the model.
-    output_length : Length of the required output sequence.
-    depth : Used to create a deep Seq2seq model. For example, if depth = 3,
-                    there will be 3 LSTMs on the enoding side and 3 LSTMs on the
-                    decoding side. You can also specify depth as a tuple. For example,
-                    if depth = (4, 5), 4 LSTMs will be added to the encoding side and
-                    5 LSTMs will be added to the decoding side.
-    broadcast_state : Specifies whether the hidden state from encoder should be
-                                      transfered to the deocder.
-    inner_broadcast_state : Specifies whether hidden states should be propogated
-                                                    throughout the LSTM stack in deep models.
-    peek : Specifies if the decoder should be able to peek at the context vector
-               at every timestep.
-    dropout : Dropout probability in between layers.
+	output_dim : Required output dimension.
+	hidden_dim : The dimension of the internal representations of the model.
+	output_length : Length of the required output sequence.
+	depth : Used to create a deep Seq2seq model. For example, if depth = 3,
+					there will be 3 LSTMs on the enoding side and 3 LSTMs on the
+					decoding side. You can also specify depth as a tuple. For example,
+					if depth = (4, 5), 4 LSTMs will be added to the encoding side and
+					5 LSTMs will be added to the decoding side.
+	broadcast_state : Specifies whether the hidden state from encoder should be
+									  transfered to the deocder.
+	inner_broadcast_state : Specifies whether hidden states should be propogated
+													throughout the LSTM stack in deep models.
+	peek : Specifies if the decoder should be able to peek at the context vector
+			   at every timestep.
+	dropout : Dropout probability in between layers.
 
 
-    '''
+	'''
 
 	if isinstance(depth, int):
 		depth = (depth, depth)
@@ -335,8 +538,8 @@ def make_Seq2Seq(output_dim, output_length, batch_input_shape=None,
 		hidden_dim = output_dim
 	
 	encoder = RecurrentSequential(readout=True, state_sync=inner_broadcast_state,
-	                              unroll=unroll, stateful=stateful,
-	                              return_states=broadcast_state)
+								  unroll=unroll, stateful=stateful,
+								  return_states=broadcast_state)
 	for _ in range(depth[0]):
 		encoder.add(LSTMCell(hidden_dim, batch_input_shape=(shape[0], hidden_dim)))
 		encoder.add(Dropout(dropout))
@@ -346,14 +549,14 @@ def make_Seq2Seq(output_dim, output_length, batch_input_shape=None,
 	dense2 = Dense(output_dim)
 	
 	decoder = RecurrentSequential(readout='add' if peek else 'readout_only',
-	                              state_sync=inner_broadcast_state, decode=True,
-	                              output_length=output_length, unroll=unroll,
-	                              stateful=stateful, teacher_force=teacher_force)
+								  state_sync=inner_broadcast_state, decode=True,
+								  output_length=output_length, unroll=unroll,
+								  stateful=stateful, teacher_force=teacher_force)
 	
 	for _ in range(depth[1]):
 		decoder.add(Dropout(dropout, batch_input_shape=(shape[0], output_dim)))
 		decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim,
-		                            batch_input_shape=(shape[0], output_dim)))
+									batch_input_shape=(shape[0], output_dim)))
 	
 	_input = Input(batch_shape=shape)
 	_input._keras_history[0].supports_masking = True
@@ -374,8 +577,8 @@ def make_Seq2Seq(output_dim, output_length, batch_input_shape=None,
 	
 	
 	decoded_seq = decoder(encoded_seq,
-	                      ground_truth=inputs[1] if teacher_force else None,
-	                      initial_readout=encoded_seq, initial_state=states)
+						  ground_truth=inputs[1] if teacher_force else None,
+						  initial_readout=encoded_seq, initial_state=states)
 	
 	model = Model(inputs, decoded_seq)
 	model.encoder = encoder
@@ -383,9 +586,9 @@ def make_Seq2Seq(output_dim, output_length, batch_input_shape=None,
 	return model
 
 def make_AttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
-                     batch_size=None, input_shape=None, input_length=None,
-                     input_dim=None, hidden_dim=None, depth=1,
-                     bidirectional=True, unroll=False, stateful=False, dropout=0.0,):
+					 batch_size=None, input_shape=None, input_length=None,
+					 input_dim=None, hidden_dim=None, depth=1,
+					 bidirectional=True, unroll=False, stateful=False, dropout=0.0,):
 	'''
 	This is an attention Seq2seq model based on [3].
 	Here, there is a soft allignment between the input and output sequence elements.
@@ -394,12 +597,12 @@ def make_AttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 	
 	The  math:
 	
-	        Encoder:
-	        X = Input Sequence of length m.
-	        H = Bidirection_LSTM(X); Note that here the LSTM has return_sequences = True,
-	        so H is a sequence of vectors of length m.
+			Encoder:
+			X = Input Sequence of length m.
+			H = Bidirection_LSTM(X); Note that here the LSTM has return_sequences = True,
+			so H is a sequence of vectors of length m.
 	
-	        Decoder:
+			Decoder:
 	y(i) = LSTM(s(i-1), y(i-1), v(i)); Where s is the hidden state of the LSTM (h and c)
 	and v (called the context vector) is a weighted sum over H:
 	
@@ -433,11 +636,11 @@ def make_AttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 	_input._keras_history[0].supports_masking = True
 	
 	encoder = RecurrentSequential(unroll=unroll, stateful=stateful,
-	                              return_sequences=True)
+								  return_sequences=True)
 	encoder.add(LSTMCell(hidden_dim, batch_input_shape=(shape[0], shape[2])))
 	
 	for _ in range(1, depth[0]):
-# 	    encoder.add(Dropout(dropout))
+# 		encoder.add(Dropout(dropout))
 		encoder.add(LSTMCell(hidden_dim))
 	
 	if bidirectional:
@@ -449,16 +652,16 @@ def make_AttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 	
 	encoded = encoder(_input)
 	decoder = RecurrentSequential(decode=True, output_length=output_length,
-	                              unroll=unroll, stateful=stateful)
+								  unroll=unroll, stateful=stateful)
 # 	decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], hidden_dim)))
 	if depth[1] == 1:
 		decoder.add(AttentionDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim))
 	else:
 		decoder.add(AttentionDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim))
 		for _ in range(depth[1] - 2):
-		# 	        decoder.add(Dropout(dropout))
+		# 			decoder.add(Dropout(dropout))
 			decoder.add(LSTMDecoderCell(output_dim=hidden_dim, hidden_dim=hidden_dim))
-		# 	    decoder.add(Dropout(dropout))
+		# 		decoder.add(Dropout(dropout))
 		decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim))
 	
 	inputs = [_input]
@@ -467,9 +670,9 @@ def make_AttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 	return model
 
 def make_teaching_attentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
-                     batch_size=None, input_shape=None, input_length=None,
-                     input_dim=None, hidden_dim=None, depth=1,
-                     teacher_force=True, bidirectional=True, unroll=False, stateful=False, dropout=0.0,):
+					 batch_size=None, input_shape=None, input_length=None,
+					 input_dim=None, hidden_dim=None, depth=1,
+					 teacher_force=True, bidirectional=True, unroll=False, stateful=False, dropout=0.0,):
 	
 	'''
 	This is an attention Seq2seq model based on [3].
@@ -567,7 +770,7 @@ def replace_with_unk(inputs):
 	# TODO, should be wrong here, need to replace less_equal with less
 	condition = tf.less_equal(inputs, tf.convert_to_tensor(cfg.vocab_size))
 	return tf.where(condition, inputs, 
-	                    tf.ones_like(inputs) * cfg.w2i(cfg.unk_flg))
+						tf.ones_like(inputs) * cfg.w2i(cfg.unk_flg))
 
 # # placeholder for inputs
 # encoder_inputs = tf.placeholder(tf.int32, shape=(cfg.batch_size, None))
@@ -692,8 +895,8 @@ def make_tf_seq2seq_attention(args_input, mode='train'):
 	
 	# https://stackoverflow.com/questions/35687678/using-a-pre-trained-word-embedding-word2vec-or-glove-in-tensorflow
 	embedding_matrix = tf.Variable(tf.constant(0.0, shape=(cfg.vocab_size, cfg.embedding_size)),
-	                               trainable=True,   # if pre-trained
-	                               name="embedding_matrix")
+								   trainable=True,   # if pre-trained
+								   name="embedding_matrix")
 	
 	embedding_init = embedding_matrix.assign(args_input['embedding_placeholder'])
 	x_embedding = tf.nn.embedding_lookup(embedding_matrix, args_input['encoder_inputs'])
@@ -703,10 +906,10 @@ def make_tf_seq2seq_attention(args_input, mode='train'):
 	cells = [tf.nn.rnn_cell.LSTMCell(cfg.encoder_hidden_size) for _ in range(cfg.n_encoder_layer)]
 	encoder_cell = tf.nn.rnn_cell.MultiRNNCell(cells=cells)
 	encoder_outputs, encoder_final_state = tf.nn.dynamic_rnn(
-	    cell=encoder_cell,
-	    dtype=tf.float32,
-	    inputs=x_embedding,
-# 	    sequence_length=args_input['encoder_inputs_lengths'],
+		cell=encoder_cell,
+		dtype=tf.float32,
+		inputs=x_embedding,
+# 		sequence_length=args_input['encoder_inputs_lengths'],
 	)
 	
 	variable_summaries('encoder_outputs', encoder_outputs)
@@ -716,50 +919,50 @@ def make_tf_seq2seq_attention(args_input, mode='train'):
 
 	cells = [tf.nn.rnn_cell.LSTMCell(cfg.decoder_hidden_size) for _ in range(cfg.n_decoder_layer)]
 	# cells = [tf.nn.rnn_cell.DeviceWrapper(
-	#     tf.nn.rnn_cell.ResidualWrapper(tf.nn.rnn_cell.LSTMCell(latent_size)),
-	#     device='/gpu:%d' % i) for i in range(cfg.n_gpus)]
+	#	 tf.nn.rnn_cell.ResidualWrapper(tf.nn.rnn_cell.LSTMCell(latent_size)),
+	#	 device='/gpu:%d' % i) for i in range(cfg.n_gpus)]
 	
 	decoder_cell = tf.nn.rnn_cell.MultiRNNCell(
-	    cells=cells
+		cells=cells
 	)
 	
 	attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-	    num_units=cfg.encoder_hidden_size,
-	    memory=encoder_outputs
+		num_units=cfg.encoder_hidden_size,
+		memory=encoder_outputs
 	)
 	
 	attention_cell = tf.contrib.seq2seq.AttentionWrapper(
-	    cell=decoder_cell,
-	    attention_mechanism=attention_mechanism,
-	    attention_layer_size=cfg.encoder_hidden_size  # optional
+		cell=decoder_cell,
+		attention_mechanism=attention_mechanism,
+		attention_layer_size=cfg.encoder_hidden_size  # optional
 	)
 	
 	attention_zero_state = attention_cell.zero_state(
-	    batch_size=args_input['batch_size'], 
-	    dtype=tf.float32
+		batch_size=args_input['batch_size'], 
+		dtype=tf.float32
 	)
 	attention_initial_state = attention_zero_state.clone(
-	    cell_state=encoder_final_state
+		cell_state=encoder_final_state
 	)
 	
 	training_helper = tf.contrib.seq2seq.TrainingHelper(
-	    inputs=y_embedding,
-	    sequence_length=args_input['decoder_outputs_lengths']
+		inputs=y_embedding,
+		sequence_length=args_input['decoder_outputs_lengths']
 	)
 	projection_layer = layers_core.Dense(cfg.vocab_size,
-	                                   activation=tf.nn.sigmoid)
+									   activation=tf.nn.sigmoid)
 	
 	decoder = tf.contrib.seq2seq.BasicDecoder(
-	    cell=attention_cell,
-	    helper=training_helper,
-	    initial_state=attention_initial_state,
-	    output_layer=projection_layer
+		cell=attention_cell,
+		helper=training_helper,
+		initial_state=attention_initial_state,
+		output_layer=projection_layer
 	)
 	
 	final_outputs, final_state, final_sequence_lengths = \
-	    tf.contrib.seq2seq.dynamic_decode(
-	        decoder=decoder
-	    )
+		tf.contrib.seq2seq.dynamic_decode(
+			decoder=decoder
+		)
 	variable_summaries('final_rnn_outputs', final_outputs.rnn_output)
 	variable_summaries('final_cell_state', final_state.cell_state)
 	variable_summaries('final_attention', final_state.attention)
@@ -774,16 +977,16 @@ def make_tf_seq2seq_attention(args_input, mode='train'):
 # 					tf.fill([cfg.batch_size], cfg.w2i(cfg.start_flg),
 # 					cfg.w2i(cfg.end_flg)))
 		helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-		    embedding=args_input['embedding'],
-		    start_tokens=tf.constant(cfg.start_flg_index, shape=(args_input['batch_size'], )),
-		    end_token=cfg.end_flg_index
+			embedding=args_input['embedding'],
+			start_tokens=tf.constant(cfg.start_flg_index, shape=(args_input['batch_size'], )),
+			end_token=cfg.end_flg_index
 		)
 		
 		decoder = tf.contrib.seq2seq.BasicDecoder(
-		    cell=attention_cell,
-		    helper=helper,
-		    initial_state=attention_initial_state,
-		    output_layer=projection_layer
+			cell=attention_cell,
+			helper=helper,
+			initial_state=attention_initial_state,
+			output_layer=projection_layer
 		)
 
 # 		maximum_iterations = tf.round(tf.reduce_max(args_input['encoder_inputs_lengths']) * 2)
@@ -810,17 +1013,17 @@ def make_tf_seq2seq_attention(args_input, mode='train'):
 	
 	targets = args_input['decoder_outputs']  # int32 [batch_size, sequence_length]
 	weights = tf.cast(
-	    tf.sequence_mask(args_input['decoder_outputs_lengths'], maxlen=cfg.max_output_len), 
-	    tf.float32
+		tf.sequence_mask(args_input['decoder_outputs_lengths'], maxlen=cfg.max_output_len), 
+		tf.float32
 	)  # float32 [batch_size, sequence_length]
 	
 	
 # 	loss = tf.contrib.seq2seq.sequence_loss(
-# 	    logits, 
-# 	    targets, 
-# 	    weights,
-# 	    average_across_timesteps=True,
-# 	    average_across_batch=True
+# 		logits, 
+# 		targets, 
+# 		weights,
+# 		average_across_timesteps=True,
+# 		average_across_batch=True
 # 	)
 # 	variable_summaries('loss', loss)
 
@@ -977,7 +1180,7 @@ class Seq2SeqModel:
 			self.lr = lr
 # 			opt = tf.train.GradientDescentOptimizer(self._lr)
 			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
-# 			opt = tf.train.AdamOptimizer(learning_rate=lr)
+# 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
 			self._opt = opt
 # 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
 			self._grads = tf.constant(0.0)
@@ -1078,8 +1281,10 @@ class Seq2SeqModel:
 				bw_cells = None
 				# build cell
 				if self._encoder_cell_type == 'LSTM':
-					fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-					bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+# 					fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+# 					bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+					fw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
+					bw_cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
 					fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=0.9)
 					bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=0.9)
 	# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]

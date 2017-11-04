@@ -75,7 +75,7 @@ class Config(object):
 	max_left_input_len = 50
 	max_mid_input_len = 50
 	max_right_input_len = 50
-	embedding_size = 50
+	embedding_size = 100
 	dim_left_embedding = 50
 	dim_right_embedding = 50
 	dim_mid_embedding = 50

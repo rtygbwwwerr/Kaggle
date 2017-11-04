@@ -1071,7 +1071,7 @@ def gen_out_vocab():
 	df_data = pd.read_csv('../data/en_train.csv')
 	df = df_data[df_data['before'] != df_data['after']]
 	words = []
-	df['after'].apply(lambda x: words.extend(str(x).split(' ')))
+	df['after'].apply(lambda x: words.extend(unicode(str(x)).split(' ')))
 	voc = Counter(words).most_common()
 	df_out = pd.DataFrame(voc, columns=['word', 'count'])
 	df_out.to_csv('../data/out_vocab.csv', index=False)
