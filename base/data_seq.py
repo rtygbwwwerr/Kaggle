@@ -132,24 +132,29 @@ class SeqData:
 			print('{} -> {} (Real: {})'.format(input_sequence, infer_output_sequence, output_sequence))
 	
 	
-	def eval_result(self, input_ids, output_ids, infer_output_ids):
+	def eval_result(self, input_ids, output_ids, infer_output_ids, step, batch_size):
 		_right, _wrong = 0.0, 0.0
+		
+		infos = []
 		for i in range(len(input_ids)):
 			input_sequence = ' '.join(self.interpret(input_ids[i], join_string=' ')
 			                          .replace(self.symbols[self._PAD], '').split())
 			output_sequence = ' '.join(self.interpret(output_ids[i], join_string=' ')
 			                           .replace(self.symbols[self._PAD], '').split())
 			infer_output_sequence = self.interpret(infer_output_ids[i], join_string=' ')
-			print('EVAL:{}==>{} -> {} (Real: {})'.format(i, input_sequence, infer_output_sequence, output_sequence))
+			info = 'EVAL:{}==>{} -> {} (Real: {})'.format(step * batch_size + i, input_sequence, infer_output_sequence, output_sequence)
 			try:
 				if output_sequence.strip() == infer_output_sequence.strip():
+					info = "{}:{}".format("[Right]", info)
 					_right += 1.0
 				else:
+					info = "{}:{}".format("[False]", info)
 					_wrong += 1.0
 			except ValueError:  # output_sequence == ''
 				_wrong += 1.0
-		
-		return _right, _wrong
+			print info
+			infos.append(info)
+		return _right, _wrong, infos
 
 	def build(self):
 		"""

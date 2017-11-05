@@ -803,7 +803,7 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 			epoch_acc = epoch_acc / float(step_nums)
 			epoch_acc_seq = epoch_acc_seq / float(step_nums)
 			right, wrong = 0.0, 0.0
-			
+			val_ret = []
 			for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
 				
 				feed_dict = model.make_feed_dict(data_dict)
@@ -813,9 +813,10 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 				if step == 0:
 					print(data_dict['decoder_inputs'][:5])
 					print(beam_result_ids[:5])
-				now_right, now_wrong = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids)
+				now_right, now_wrong, infos = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids, step, batch_size)
 				right += now_right
 				wrong += now_wrong
+				val_ret.extend(infos)
 # 			valid_summary_writer.add_summary(summaries_valid, epoch)
 			path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{seq_acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
 																						    epoch_id=epoch,
@@ -824,6 +825,9 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 																						    seq_acc=epoch_acc_seq,
 																						    val_acc=100*right/float(right+wrong),
 																						    )
+			fp = open("../data/valid_ret.txt", "w")
+			fp.writelines(val_ret)
+			fp.close()
 			saved_path = saver.save(sess, path, global_step=model.train_step)
 			print "saved check file:" + saved_path
 			print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
@@ -2925,7 +2929,7 @@ if __name__ == "__main__":
 # 	run_evalute()
 # 	experiment_simple_lstm()
 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-						   file_head="tf_teach_att_bl2_bl1_c", pre_train_model_file=None)
+						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_file=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')

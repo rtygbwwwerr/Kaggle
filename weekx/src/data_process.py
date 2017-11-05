@@ -946,8 +946,9 @@ def display_feature_info(df, name):
 def display_token_info(df, input_token, feature_name="before"):
 	df_out = df[df[feature_name]==input_token]
 	print "Total num:%d"%(len(df_out))
-	display_feature_info(df_out, 'after')
-	print df_out["sentence_id"]
+	if "after" in df.columns.tolist():
+		display_feature_info(df_out, 'after')
+# 	print df_out["sentence_id"]
 
 	
 

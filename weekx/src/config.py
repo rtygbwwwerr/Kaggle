@@ -95,7 +95,7 @@ class Config(object):
 	n_gpus = 1
 	input_hidden_dim = 512
 	encoder_hidden_size = 250
-	n_encoder_layers = 2
+	n_encoder_layers = 4
 	n_decoder_layers = 1
 	decoder_hidden_size = encoder_hidden_size
 	space_letter = 0

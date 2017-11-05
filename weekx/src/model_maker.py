@@ -1068,10 +1068,10 @@ def make_tf_tailored_seq2seq(
 				n_decoder_layers = 1,
 				attention_type = 'Bahdanau',
 				attention_num_units=100,
-				init_learning_rate=0.1,
+				init_learning_rate=0.25,
 				minimum_learning_rate=1e-5,
-				decay_steps=1e4,
-				decay_factor=0.3,
+				decay_steps=2e4,
+				decay_factor=0.5,
 				attention_depth=100,
 				is_bidrection=True,
 				is_attention=True,
@@ -1129,8 +1129,8 @@ class Seq2SeqModel:
 				attention_num_units=100,
 				max_decode_iter_size=10,
 				init_learning_rate=0.01,
-				minimum_learning_rate=1e-8,
-				decay_steps=1e4,
+				minimum_learning_rate=1e-4,
+				decay_steps=2e4,
 				decay_factor=0.3,
 				attention_depth=100,
 				is_bidrection=True,
@@ -1262,6 +1262,14 @@ class Seq2SeqModel:
 				decoder_loss_mask,
 				name='sequence_loss'
 			)
+			
+# 			seq_loss = tf.nn.ctc_loss(labels = decoder_target, 
+# 									inputs = decoder_logits, 
+# 									decoder_lengths, 
+# 									preprocess_collapse_repeated, 
+# 									ctc_merge_repeated,
+# 									ignore_longer_outputs_than_inputs, 
+# 									time_major)
 
 		return seq_loss
 	def _create_RNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
