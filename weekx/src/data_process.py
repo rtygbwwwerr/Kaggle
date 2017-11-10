@@ -21,7 +21,7 @@ import re
 from num2words import num2words
 import inflect
 from tables.tests.create_backcompat_indexes import nrows
-import fst
+#import fst
 from keras.utils.np_utils import to_categorical
 from keras.preprocessing import sequence
 from pandas.tseries.offsets import _is_normalized
@@ -612,6 +612,18 @@ def extract_y_info(data):
 	y = sequence.pad_sequences(list_values, maxlen=cfg.max_output_len, padding='post')
 	print "complated extract y info!"
 	return y
+
+def recover_y_info(y_ids):
+    if not y_ids:
+        return ''
+
+    while len(y_ids) > 0 and y_ids[0] == cfg.start_flg_index:
+        y_ids = y_ids[1:]
+
+    while len(y_ids) > 0 and (y_ids[-1] < 0 or y_ids[-1] == cfg.end_flg_index):
+        y_ids = y_ids[0:len(y_ids)-1]
+
+    return ' '.join([cfg.i2w(i) for i in y_ids])
 
 def extract_y_class_info(data):
 	y = None

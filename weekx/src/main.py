@@ -1,8 +1,11 @@
+import codecs
+import csv
+import re
 import pandas as pd
 import data_process
 from base.data_seq import NumpySeqData
 import numpy as np
-import fst
+#import fst
 from keras.datasets import imdb
 from keras.models import Sequential
 from keras.optimizers import Adam, RMSprop
@@ -32,7 +35,7 @@ import math
 import keras.backend as K
 import tensorflow as tf
 from matplotlib.pyplot import axis
-from bokeh.server.protocol.messages import index
+#from bokeh.server.protocol.messages import index
 from bokeh.util.session_id import random
 from keras.layers.wrappers import Bidirectional
 import heapq
@@ -41,7 +44,7 @@ from beam_search import beam_search
 from keras.layers import merge
 import model_maker
 from math import ceil, floor
-from vis.optimizer import Optimizer
+#from vis.optimizer import Optimizer
 from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
 import sys
@@ -50,6 +53,9 @@ reload(sys)
 sys.setdefaultencoding('utf8')
 from __builtin__ import str
 cfg.init()
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -205,7 +211,7 @@ def sparse_generator(X, y, batch_size=128, shuffle=True):
 # 			X_batch[i,:,:] = np.transpose(X[j].toarray())
 			tmpx = X[j].toarray()
 			for t in range(tmpx.shape[1]):
- 				X_batch[i,t,tmpx[0,t]] = 1.0
+				X_batch[i,t,tmpx[0,t]] = 1.0
 			for t in range(y.shape[1]):
 				y_batch[i,t,y[j, t]] = 1.0
 		# reshape y to be [samples, time steps, features]	
@@ -258,7 +264,7 @@ def sparse_generator_two(X, y, batch_size=128, shuffle=True):
 # 			X_batch[i,:,:] = np.transpose(X[j].toarray())
 			tmpx = X[j].toarray()
 			for t in range(tmpx.shape[1]):
- 				X_batch[i,t,tmpx[0,t]] = 1.0
+				X_batch[i,t,tmpx[0,t]] = 1.0
 			for t in range(y.shape[1]):
 				X_decode_batch[i,t,y[j, t]] = 1.0
 				if t > 0:
@@ -287,7 +293,7 @@ def generator_teaching_onehot(X, y, batch_size=128, shuffle=True):
 		for i, j in enumerate(batch_index):
 # 			X_batch[i,:,:] = np.transpose(X[j].toarray())
 			for t in range(X.shape[1]):
- 				X_batch[i,t,X[j, t]] = 1.0
+				X_batch[i,t,X[j, t]] = 1.0
 			for t in range(y.shape[1]):
 				X_decode_batch[i,t,y[j, t]] = 1.0
 				if t > 0:
@@ -315,7 +321,7 @@ def generator_onehot(X, y, batch_size=128, shuffle=True):
 		for i, j in enumerate(batch_index):
 # 			X_batch[i,:,:] = np.transpose(X[j].toarray())
 			for t in range(X.shape[1]):
- 				X_batch[i,t,X[j, t]] = 1.0
+				X_batch[i,t,X[j, t]] = 1.0
 			for t in range(y.shape[1]):
 				y_batch[i,t,y[j, t]] = 1.0
 
@@ -695,11 +701,32 @@ def get_batch_data_onehot_copyNet(X, y, batchid, batch_size, shuffle=True):
 # 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
 	return X_batch, X_decode_batch, y_batch
 
-def restore_tf_model(path, sess):
-	meta_path = path + '.meta'
-	model_path = path
-	saver = tf.train.import_meta_graph(meta_path)
-	saver.restore(sess, model_path)
+def restore_tf_model(model_prefix, sess, batch_size):
+	# Load graph file.
+	saver = tf.train.import_meta_graph(model_prefix + '.meta')
+	saver.restore(sess, model_prefix)
+
+    # Create model.
+	model = model_maker.make_tf_tailored_seq2seq(
+						n_encoder_layers = cfg.n_encoder_layers,
+						n_decoder_layers = cfg.n_decoder_layers,
+						dropout = cfg.ed_dropout,
+						encoder_hidden_size=cfg.encoder_hidden_size, 
+						decoder_hidden_size=cfg.decoder_hidden_size, 
+						batch_size=batch_size, 
+						embedding_dim=cfg.embedding_size, 
+						vocab_size=cfg.vocab_size, 
+						max_decode_iter_size=cfg.max_output_len,
+						PAD = cfg.pad_flg_index,
+						START = cfg.start_flg_index,
+						EOS = cfg.end_flg_index,
+						is_training = False,
+						)
+
+	# Restore parameters in Model object with restored value.
+	model.restore_from_session(sess)
+
+	return model
 
 def decode_sequence_tf(X, model, save_path, beam_size=2):
 	
@@ -719,7 +746,8 @@ def decode_sequence_tf(X, model, save_path, beam_size=2):
 		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
 	return " ".join(decoded_sentence)
 	
-def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head, 
+def train_tf_tailored_teaching_attention(
+			sess, model, log_dir, ret_file_head, 
 			X_train, Y_train, X_valid, Y_valid, 
 			initial_epoch, batch_size=128, nb_epoch = 100):
 	
@@ -730,8 +758,8 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 	data_process.dump(cfg.vocab_i2word, "../data/i2w.dic")
 	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
 	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
-	np.savetxt("../data/X_valid.txt", X_train.astype(np.int32), '%d')
-	np.savetxt("../data/Y_valid.txt", Y_train.astype(np.int32), '%d')
+	np.savetxt("../data/X_valid.txt", X_valid.astype(np.int32), '%d')
+	np.savetxt("../data/Y_valid.txt", Y_valid.astype(np.int32), '%d')
 # 	num_train_examples = X_train.shape[0]
 	max_epoch = nb_epoch
 	step_nums = int(math.ceil(X_train.shape[0] / float(batch_size)))
@@ -739,98 +767,85 @@ def train_tf_tailored_teaching_attention(model_fn, log_dir, ret_file_head,
 	
 # 	steps_in_epoch = int(floor(num_train_examples / batch_size))
 
-	model = model_fn(
-						n_encoder_layers = cfg.n_encoder_layers,
-						n_decoder_layers = cfg.n_decoder_layers,
-						dropout = cfg.ed_dropout,
-						encoder_hidden_size=cfg.encoder_hidden_size, 
-						decoder_hidden_size=cfg.decoder_hidden_size, 
-						batch_size=batch_size, 
-						embedding_dim=cfg.embedding_size, 
-						vocab_size=cfg.vocab_size, 
-						max_decode_iter_size=cfg.max_output_len,
-						PAD = cfg.pad_flg_index,
-						START = cfg.start_flg_index,
-						EOS = cfg.end_flg_index,
-						)
-
 # 	model = Seq2SeqModel(config, input_batch=None)
 # 	summary_op = model.summary_op
 
 	saver = tf.train.Saver(max_to_keep=100)
-	with tf.Session() as sess:
-# 		summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
-		train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
-		sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-		
-		print "Training Start!"
-		for epoch in range(1, max_epoch + 1):
-			print "Epoch {}".format(epoch)
-			epoch_loss = 0.
-			epoch_acc = 0.
-			epoch_acc_seq = 0.
-			for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
-				
-				feed_dict = model.make_feed_dict(data_dict)
-# 				feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-				_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
-				    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.summary_op], feed_dict)
+# 	summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
+	train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
+	sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+	
+	print "Training Start!"
+	for epoch in range(1, max_epoch + 1):
+		print "Epoch {}".format(epoch)
+		epoch_loss = 0.
+		epoch_acc = 0.
+		epoch_acc_seq = 0.
+		for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
+			
+			feed_dict = model.make_feed_dict(data_dict)
+# 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
+			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
+			    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.summary_op], feed_dict)
 
-				if (step + 1) % 1 == 0:
-					
-					epoch_loss += loss_value
-					epoch_acc += accuracy
-					epoch_acc_seq += accuracy_seqs
-					avg_loss = epoch_loss / (step + 1)
-					avg_acc = epoch_acc / (step + 1)
-					avg_acc_seq = epoch_acc_seq / (step + 1)
-					
-					print "Step {cur_step:6d} / {all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(cur_step=step+1,
-																				 all_step=step_nums,
-																				 loss=loss_value,
-				                    											 token_acc=accuracy,
-				                    											 seq_acc=accuracy_seqs,
-				                    											 loss_avg=avg_loss,
-				                    											 acc_avg=avg_acc,
-				                    											 seq_acc_avg=avg_acc_seq,
-				                    											 grad = grads,
-				                    											 lr=learn_rate)
+			if (step + 1) % 1 == 0:
 				
-# 					dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
+				epoch_loss += loss_value
+				epoch_acc += accuracy
+				epoch_acc_seq += accuracy_seqs
+				avg_loss = epoch_loss / (step + 1)
+				avg_acc = epoch_acc / (step + 1)
+				avg_acc_seq = epoch_acc_seq / (step + 1)
+				
+				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(
+																			 epoch=epoch,
+																			 total_epoch=max_epoch,
+																			 cur_step=step+1,
+																			 all_step=step_nums,
+																			 loss=loss_value,
+			                    											 token_acc=accuracy,
+			                    											 seq_acc=accuracy_seqs,
+			                    											 loss_avg=avg_loss,
+			                    											 acc_avg=avg_acc,
+			                    											 seq_acc_avg=avg_acc_seq,
+			                    											 grad = grads,
+			                    											 lr=learn_rate)
+			
+# 				dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
 
-					train_summary_writer.add_summary(summaries, g_step)
-			epoch_loss = epoch_loss / float(step_nums)
-			epoch_acc = epoch_acc / float(step_nums)
-			epoch_acc_seq = epoch_acc_seq / float(step_nums)
-			right, wrong = 0.0, 0.0
-			val_ret = []
-			for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
-				
-				feed_dict = model.make_feed_dict(data_dict)
-				beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
-				beam_result_ids = beam_result_ids[:, :, 0]
-				print beam_result_ids.shape
-				if step == 0:
-					print(data_dict['decoder_inputs'][:5])
-					print(beam_result_ids[:5])
-				now_right, now_wrong, infos = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids, step, batch_size)
-				right += now_right
-				wrong += now_wrong
-				val_ret.extend(infos)
-# 			valid_summary_writer.add_summary(summaries_valid, epoch)
-			path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{seq_acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
-																						    epoch_id=epoch,
-																						    loss=epoch_loss,
-																						    acc=epoch_acc,
-																						    seq_acc=epoch_acc_seq,
-																						    val_acc=100*right/float(right+wrong),
-																						    )
-			fp = open("../data/valid_ret.txt", "w")
-			fp.writelines(val_ret)
-			fp.close()
-			saved_path = saver.save(sess, path, global_step=model.train_step)
-			print "saved check file:" + saved_path
-			print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
+				train_summary_writer.add_summary(summaries, g_step)
+		epoch_loss = epoch_loss / float(step_nums)
+		epoch_acc = epoch_acc / float(step_nums)
+		epoch_acc_seq = epoch_acc_seq / float(step_nums)
+		right, wrong = 0.0, 0.0
+		val_ret = []
+		for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
+			
+			feed_dict = model.make_feed_dict(data_dict)
+			beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
+			beam_result_ids = beam_result_ids[:, :, 0]
+			print beam_result_ids.shape
+			if step == 0:
+				print(data_dict['decoder_inputs'][:5])
+				print(beam_result_ids[:5])
+			now_right, now_wrong, infos = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids, step, batch_size)
+			right += now_right
+			wrong += now_wrong
+			val_ret.extend(infos)
+# 		valid_summary_writer.add_summary(summaries_valid, epoch)
+		path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{seq_acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
+																					    epoch_id=epoch,
+																					    loss=epoch_loss,
+																					    acc=epoch_acc,
+																					    seq_acc=epoch_acc_seq,
+																					    val_acc=100*right/float(right+wrong),
+																					    )
+		fp = open("../data/valid_ret.txt", "w")
+		fp.writelines(val_ret)
+		fp.close()
+		saved_path = saver.save(sess, path, global_step=model.train_step)
+		print "saved check file:" + saved_path
+		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 	
 			
 def train_tf_teaching_attention(model_fn, log_dir, ret_file_head, 
@@ -2130,7 +2145,7 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 # 	index_end = model_file.find("-")
 # 	initial_epoch = int(model_file[index_start:index_end])
 	
-def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_file=None):
+def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_prefix=None):
 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 	x_t_c = data['x_t_c']
 	y_t = data['y_t']
@@ -2142,15 +2157,33 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	initial_epoch = 0
 
-	#load pre-training weight
-	if pre_train_model_file is not None:
-		restore_tf_model(model_maker.make_tf_copyNet, pre_train_model_file)
-	log_dir = '../logs/tf/'
+	with tf.Session() as sess:
+		# Create model or load pre-trained model.
+		model = None
+		if pre_train_model_prefix is None:
+			model = model_maker.make_tf_tailored_seq2seq(
+					n_encoder_layers = cfg.n_encoder_layers,
+					n_decoder_layers = cfg.n_decoder_layers,
+					dropout = cfg.ed_dropout,
+					encoder_hidden_size=cfg.encoder_hidden_size, 
+					decoder_hidden_size=cfg.decoder_hidden_size, 
+					batch_size=batch_size, 
+					embedding_dim=cfg.embedding_size, 
+					vocab_size=cfg.vocab_size, 
+					max_decode_iter_size=cfg.max_output_len,
+					PAD = cfg.pad_flg_index,
+					START = cfg.start_flg_index,
+					EOS = cfg.end_flg_index,
+					)
+		else:
+			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
+
+		log_dir = '../logs/tf/'
 # 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
 # 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
 # 	print(model.summary())
-	train_tf_tailored_teaching_attention(model_maker.make_tf_tailored_seq2seq, log_dir, file_head + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
-					batch_size=batch_size, nb_epoch = nb_epoch + initial_epoch)
+		train_tf_tailored_teaching_attention(sess, model, log_dir, file_head + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
+				batch_size=batch_size, nb_epoch = nb_epoch + initial_epoch)
 
 
 	
@@ -2300,8 +2333,6 @@ def evalute_acc(ret_file, err_file):
 	print 'The corrected num is:%d, real acc:%f'%(len(df_c), len(df_c)/float(len(df_ret)))
 
 def split_by_classifier(classifier, cls_num, x_t_cls, x_t, df_test, y_t_cls=None, y_t=None):
-	
-	
 	index_list = []
 	x_list = []
 	cls_df_list = []
@@ -2364,35 +2395,32 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 		print mod_classifier.summary()
 		mod_classifier.load_weights(data_args['model_classify'])
 		cls_num = len(data_args['model_normal'])
-	index_list, x_list, cls_df_list, _, _ = split_by_classifier(cls_num, mod_classifier, x_t_c, x_t_c, df_test)
-	
+	index_list, x_list, cls_df_list, _, _ = split_by_classifier(mod_classifier, cls_num, x_t_c, x_t_c, df_test)
 	
 	cls_info = "Total item num:{}, ".format(len(df_test))
-	
-	
-	
+
 	for cls in range(cls_num):
 		cls_info = cls_info + 'c{0} num:{1} '.format(cls + 1, len(cls_df_list[cls]))
 		if is_teach:
 			decode_teach(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
 		else:
-			decode(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
+			#decode(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
+			decode_tf(x_list[cls], cls_df_list[cls], data_args['model_normal'][cls])
 		if is_evaluate:
 			evalute_result(x_list[cls], "../data/noraml_err_cls{}.csv".format(cls + 1))
 	
 	print cls_info
-
 		
 	gen_result_file(index_list, df_test, cls_df_list, 
 					test_ret_file=data_args['test_ret_file'], ret_file=data_args['ret_file'], origin_file=data_args['origin_file'],
-					 sub_file=data_args['sub_file'], test_ret_file_err=data_args['test_ret_file_err'])
+					sub_file=data_args['sub_file'], test_ret_file_err=data_args['test_ret_file_err'])
 	
 	
 def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, origin_file, sub_file=None, test_ret_file_err=None):
 	df_origin = pd.read_csv(origin_file)
 	df_origin['p_after'] = df_origin['before']
+
 	is_classified = (len(index_list) > 1)
-	
 	if is_classified:
 		df_test['p_after'] = ''
 		for cls in range(len(index_list)):
@@ -2402,7 +2430,7 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 
 # 	df_origin['id'] = df_origin.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
 # 	df_test['id'] = df_test.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
-	index_origin = np.where(df_origin['new_class'].values!=0)[0].tolist()
+	index_origin = np.where(df_origin['new_class'].values != 0)[0].tolist()
 	print len(df_origin)
 	print len(index_origin)
 	print len(df_test)
@@ -2416,11 +2444,10 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 
 		if sub_file is not None:
 			df_sub = pd.DataFrame()
-			df_sub['id'] = df_origin.apply(lambda x: str(x['sentence_id']) + "_" + str(x['token_id']), axis=1)
+			df_sub['id'] = df_origin.apply(lambda x: '%s_%s' % (str(x['sentence_id']), str(x['token_id'])), axis=1)
 			df_sub['after'] = df_origin['p_after']
-			df_sub.to_csv(sub_file, index=False)
+			df_sub.to_csv(sub_file, quoting=csv.QUOTE_ALL, index=False)
 			print 'saved submission file:' + sub_file
-		
 	else:
 		print "test data not equal to the origin data, skip submission stage."
 		
@@ -2454,9 +2481,6 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 			err_index_file = test_ret_file_err[:test_ret_file_err.find(".csv")] + "_index"
 			data_process.dump(df_test_err.index.tolist(), err_index_file)
 			print "saved error index to file:" + err_index_file
-			
-
-	
 	
 	df_test.to_csv(test_ret_file, index=False)	
 	print 'saved test result file:' + test_ret_file
@@ -2486,8 +2510,55 @@ def decode(X, df_test, weights_file):
 		
 	df_test['p_after'] = pd.Series(normalizations)
 	
-def decode_tf(X, df_test, weights_file):
-	print "unimplement!"
+def decode_tf(X, df_test, model_prefix, batch_size=256):
+	def calculate_lens(data):
+		len_list = []
+		PAD = 0
+		for i in range(data.shape[0]):
+			tmp_list = data[i].tolist()
+			pos = len(tmp_list)
+			if PAD in tmp_list:
+				pos = tmp_list.index(PAD)
+			len_list.append(pos)
+
+		return np.asarray(len_list, dtype=np.int32)
+
+	with tf.Session() as sess:
+		# Restore trained model.
+		model = restore_tf_model(model_prefix, sess, batch_size=256)
+
+		# Do normalization on test data.
+		normalizations = []
+		total_case = X.shape[0]
+		total_batch = int(math.ceil(total_case / float(batch_size)))
+		for i in range(total_batch):
+			print '---> Finished batch : %d/%d' % (i, total_batch)
+			begin_idx = i * batch_size
+			size = min(batch_size, total_case - begin_idx)
+			end_idx = begin_idx + size
+			batch_X = X[begin_idx : end_idx]
+			batch_X_lens = calculate_lens(batch_X)
+			Y_empty = np.asarray([[]] * size)
+			Y_empty_lens = np.zeros(size)
+
+			# Run prediction on batch data.
+			beam_result_ids = sess.run(
+					model.beam_search_result_ids,
+					feed_dict = {
+							model._inputs['encoder_inputs'] : batch_X, model._inputs['encoder_lengths'] : batch_X_lens,
+							model._inputs['decoder_inputs'] : Y_empty,
+							model._inputs['decoder_lengths'] : Y_empty_lens})
+			beam_result_ids = beam_result_ids[:, :, 0]
+
+			# Tranform output to real tokens.
+			for j in range(size):
+				before = str(df_test.at[begin_idx + j, 'before'])
+				p_after = data_process.recover_y_info(beam_result_ids[j].tolist())
+				normalizations.append(p_after)
+				#print '### %d' % (begin_idx + j), before, '-->', p_after
+
+		# Save to column of dataframe.
+		df_test['p_after'] = pd.Series(normalizations)
 	
 	
 def decode_teach(X, df_test, weights_file):
@@ -2880,7 +2951,39 @@ def display_model():
 	layer1 = model.get_layer('conv_1')
 	w1 = layer1.get_weights()
 	print w1
-   	
+
+def eval_trained_model(batch_size=256):
+	path = "../model/tf_teach_att_bl3_bl1_c0.32-0.00588-0.99792-0.99115-98.25900.ckpt-83808"
+	with tf.Session() as sess:
+		model = restore_tf_model(path, sess, batch_size)
+
+		X_train = np.loadtxt("../data/X_train.txt")
+		Y_train = np.loadtxt("../data/Y_train.txt")
+		X_valid = np.loadtxt("../data/X_valid.txt")
+		Y_valid = np.loadtxt("../data/Y_valid.txt")
+		dataset = NumpySeqData(cfg.pad_flg_index, cfg.end_flg_index)
+		dataset.load(X_train, Y_train, X_valid, Y_valid, cfg.vocab_i2word)
+		dataset.build()
+
+		print '================== start evaluation of trained model =================='
+		right, wrong = 0.0, 0.0
+		#total_batch = X_valid.shape[0]
+		#for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
+		total_batch = math.ceil(X_train.shape[0] / float(batch_size))
+		for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
+			print '---> Finished batch : %d/%d' % (step, total_batch)
+			feed_dict = model.make_feed_dict(data_dict)
+			beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
+			beam_result_ids = beam_result_ids[:, :, 0]
+			print beam_result_ids.shape
+			if step == 0:
+				print(data_dict['decoder_inputs'][:5])
+				print(beam_result_ids[:5])
+			now_right, now_wrong, infos = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids, step, batch_size)
+			right += now_right
+			wrong += now_wrong
+		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
+
 if __name__ == "__main__":
 	
 # 	data_process.gen_alpha_table()
@@ -2920,16 +3023,15 @@ if __name__ == "__main__":
 # 	
 # 	df = pd.read_csv('../data/en_train_filted_class.csv')
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
-	
-# 	run_normalize(False, 10000, False, cfg.data_args_train_no_classify)
+	run_normalize(False, 0, False, cfg.data_args_test)
 # 	experiment_simple_gru(nb_epoch=100, input_num=10000, cls_id=0, pre_train_model_file=None)
 # 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
 # 	experiment_simple_lstm()
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_file=None)
+#	experiment_teaching_tf(batch_size=256, nb_epoch=1, input_num=100, cls_id=0,
+#						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
@@ -2949,4 +3051,5 @@ if __name__ == "__main__":
 # 	data_process.display_sentence(218309, df)
 # 	
 # 	data_process.display_sentence(110195, df)
+#	eval_trained_model(batch_size=256)
 

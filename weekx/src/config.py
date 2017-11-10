@@ -1,6 +1,6 @@
 import data_process
 import copy
-from Orange.orangeom import star
+#from Orange.orangeom import star
 
 class Config(object):
 	dic_input_char2i = {}
@@ -95,7 +95,7 @@ class Config(object):
 	n_gpus = 1
 	input_hidden_dim = 512
 	encoder_hidden_size = 250
-	n_encoder_layers = 4
+	n_encoder_layers = 3
 	n_decoder_layers = 1
 	decoder_hidden_size = encoder_hidden_size
 	space_letter = 0
@@ -173,8 +173,8 @@ class Config(object):
 	data_args_test = {'df_test':'../data/test_filted_classify.csv',
 					   'feat_classify':'../data/en_test_classify.npz',
 					   'feat_normalization':'../data/en_test.npz',
-					   'model_classify':"../model/class_cnn_c2_weights.98-0.0005-1.0000-0.0004-1.0000.hdf5",
-					   'model_normal':["../model/teach_l1_l1_c1_weights.149-0.0022-0.9994-0.0020-0.9995.hdf5", "../model/teach_l1_l1_c2_weights.188-0.0045-0.9988-0.0048-0.9988.hdf5"],
+					   'model_classify':None,
+					   'model_normal':["../model/tf_teach_att_bl3_bl1_c0.32-0.00588-0.99792-0.99115-98.25900.ckpt-83808"],
 					   'test_ret_file':'../data/en_train_test_ret.csv',
 					   'test_ret_file_err':None,
 					   'ret_file':'../data/en_test_ret.csv',

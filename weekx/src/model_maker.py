@@ -1167,7 +1167,8 @@ class Seq2SeqModel:
 		self._decay_factor = decay_factor
 		self._minimum_learning_rate = minimum_learning_rate
 		self._inputs = {}
-		self._build_graph(input_batch)
+		if self._is_training:
+			self._build_graph(input_batch)
 # 	def _current_lr(self):
 		
 	def _build_train_step(self, loss):
@@ -1192,7 +1193,7 @@ class Seq2SeqModel:
 # 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
 			self._opt = opt
 # 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
-			self._grads = tf.constant(0.0)
+			grads = tf.constant(0.0)
 			train_variables = tf.trainable_variables()
 			grads_vars = opt.compute_gradients(loss, train_variables)
 			
@@ -1200,7 +1201,9 @@ class Seq2SeqModel:
 			
 			for i, (grad, var) in enumerate(grads_vars):
 				grads_vars[i] = (tf.clip_by_norm(grad, 1.0), var)
-				self._grads += tf.reduce_sum(tf.reduce_sum(grads_vars[i][0]), name="total_grads")
+				grads += tf.reduce_sum(tf.reduce_sum(grads_vars[i][0]), name="total_grads")
+			self._grads = tf.identity(grads, name='gradient')
+
 			apply_gradient_op = opt.apply_gradients(grads_vars, global_step=train_step)
 			with tf.control_dependencies([apply_gradient_op]):
 				train_op = tf.no_op(name='train_step')
@@ -1217,25 +1220,22 @@ class Seq2SeqModel:
 	
 	def _build_accuracy(self, decoder_result_ids, decoder_inputs, decoder_lengths):
 		with tf.variable_scope('accuracy_target'):
-
-			
 			flg = tf.equal(decoder_result_ids, decoder_inputs[:, 0:tf.shape(decoder_result_ids)[1]])
 			flg = tf.cast(flg, dtype=tf.float32)
 			total_corrected = tf.reduce_sum(flg)
-			acc = total_corrected / tf.cast(tf.reduce_sum(decoder_lengths), dtype=tf.float32)
-			
+			acc = tf.divide(total_corrected, tf.cast(tf.reduce_sum(decoder_lengths), dtype=tf.float32), name='acc')
 			
 			flg_s = tf.reduce_sum(flg, axis=1)
 			flg_y = tf.equal(tf.cast(flg_s, tf.int32), decoder_lengths)
 			corrected_y = tf.reduce_sum(tf.cast(flg_y, dtype=tf.float32))
-			acc_whole = corrected_y / tf.cast(tf.shape(decoder_result_ids)[0], dtype=tf.float32)
+			seq_acc = tf.divide(corrected_y, tf.cast(tf.shape(decoder_result_ids)[0], dtype=tf.float32), name='seq_acc')
 # 			arr_pad = tf.zeros_like(decoder_inputs)
 # 			arr_end = tf.ones_like(decoder_inputs) * self._EOS
 # 			decoder_inputs_masked = tf.where(tf.equal(arr_pad, decoder_inputs), arr_end, decoder_inputs)
 # 			
 # 			flg_m = tf.equal(decoder_result_ids, decoder_inputs_masked[:, 0:tf.shape(decoder_result_ids)[1]])
 
-		return acc, acc_whole
+		return acc, seq_acc 
 		
 	def _build_loss(self, decoder_logits, decoder_inputs, decoder_lengths):
 		with tf.variable_scope('loss_target'):
@@ -1272,6 +1272,7 @@ class Seq2SeqModel:
 # 									time_major)
 
 		return seq_loss
+
 	def _create_RNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
 		cells = None
 		# build cell
@@ -1576,15 +1577,17 @@ class Seq2SeqModel:
 		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
 											 decoder_inputs, decoder_lengths)
 		self.decoder_outputs = decoder_result['decoder_outputs']
-		self.decoder_result_ids = decoder_result['decoder_result_ids']
-		self.beam_search_result_ids = decoder_result['beam_decoder_result_ids']
+		self.decoder_result_ids = tf.identity(decoder_result['decoder_result_ids'], name='decoder/decoder_result_ids')
+		self.beam_search_result_ids = tf.identity(decoder_result['beam_decoder_result_ids'], name='decoder/beam_decoder_result_ids')
 		self.beam_search_scores = decoder_result['beam_decoder_scores']
 
 		seq_loss = self._build_loss(self.decoder_outputs, decoder_inputs, decoder_lengths)
 		self.train_step, self.train_op = self._build_train_step(seq_loss)
-		self.loss = seq_loss
+		self.loss = tf.identity(seq_loss, name='seq_loss')
 		self.accuracy, self.accuracy_seqs = self._build_accuracy(decoder_result['decoder_result_ids'], self._inputs['decoder_inputs'], self._inputs['decoder_lengths'])
-		self.summary_op = self._build_summary()
+		summary_op = self._build_summary()
+		self.summary_op = tf.identity(summary_op, name='summary_op')
+
 	def make_feed_dict(self, data_dict):
 		feed_dict = {}
 		for key in data_dict.keys():
@@ -1593,3 +1596,20 @@ class Seq2SeqModel:
 			except KeyError:
 				raise ValueError('Unexpected argument in input dictionary!')
 		return feed_dict
+
+	def restore_from_session(self, sess):
+		self._inputs['encoder_inputs'] = sess.graph.get_tensor_by_name("encoder_inputs:0")
+		self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
+		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
+		self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
+		self.train_op = sess.graph.get_operation_by_name("train/train_step")
+		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
+		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
+		self.accuracy = sess.graph.get_tensor_by_name("accuracy_target/acc:0")
+		self.accuracy_seqs = sess.graph.get_tensor_by_name("accuracy_target/seq_acc:0")
+		self.loss = sess.graph.get_tensor_by_name("seq_loss:0")
+		self._grads = sess.graph.get_tensor_by_name("train/gradient:0")
+		self.lr = sess.graph.get_tensor_by_name("train/lr_clip:0")
+		self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
+		self.summary_op = sess.graph.get_tensor_by_name("summary_op:0")
+
