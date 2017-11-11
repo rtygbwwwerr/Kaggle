@@ -1266,6 +1266,51 @@ def gen_one2one_dict(df):
 	
 	dump(before_after_dict, "../data/one2one_dict")
 	
+def extract_val_ret_err():
+	file = open('../data/valid_ret.txt', 'r')
+	wrong_list = []
+	lines = file.readlines()
+	for line in lines:
+		if line.startswith('[False]'):
+			wrong_list.append(line)
+	file.close()
+	file = open('../data/valid_ret_err.txt', 'w')
+	file.writelines(wrong_list)
+	file.close()
+
+def convert_ext_to_csv(root_path='../data/ext/'):
+	list_path = os.listdir(root_path)
+	
+	total_num = 0
+	for path in list_path:
+		file_path = os.path.join(root_path, path)
+		if os.path.isfile(file_path):
+			print "processing file:" + file_path
+			file = open(file_path)
+			sentence_id = 0
+			token_id = 0
+			rows = []
+			for line in file:
+				row = unicode(line.strip()).split('\t')
+				if len(row) == 3 and (row[2] == "<self>" or row[2] == "sil"):
+					row[2] = row[1]
+		
+				if row[0] == "<eos>":
+					sentence_id += 1
+					token_id = 0
+				else:
+					row.insert(0, token_id)
+					row.insert(0, sentence_id)
+					rows.append(row)
+					token_id += 1
+			
+			df = pd.DataFrame(rows, columns=['sentence_id', 'token_id', 'class', 'before', 'after'])
+			total_num += len(df)
+			print "coverted data num:" + str(len(df))
+			print df.head(3)
+			df.to_csv(file_path + '.csv', index=False)
+	print 'total data number:%d'%(total_num)
+	
 if __name__ == "__main__":
 	
 	train = pd.read_csv('../data/en_train_filted.csv')
