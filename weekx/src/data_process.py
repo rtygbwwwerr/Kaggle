@@ -1148,7 +1148,7 @@ def filter_data_by_len(data):
 	del filted['len']
 	return filted
 
-def gen_constant_dict_from_exts(root_path):
+def gen_constant_dict_from_exts(root_path="../data/ext/"):
 	list_path = os.listdir(root_path)
 	
 # 	total_num = 0
