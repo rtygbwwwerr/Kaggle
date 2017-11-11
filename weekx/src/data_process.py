@@ -1148,10 +1148,23 @@ def filter_data_by_len(data):
 	del filted['len']
 	return filted
 
+def gen_constant_dict_from_exts(root_path):
+	list_path = os.listdir(root_path)
+	
+# 	total_num = 0
+	paths = []
+	for path in list_path:
+		file_path = os.path.join(root_path, path)
+		if os.path.isfile(file_path):
+			paths.append(file_path)
+	paths.append('../data/en_train.csv')
+	gen_constant_dict(paths)
+	
 def gen_constant_dict(files=['../data/en_train.csv']):
 	
 	before_after_dict = {}
 	for file in files:
+		print "processing input file:" + file
 		data = pd.read_csv(file)
 		def add_to_dic(key, val):
 			if before_after_dict.has_key(key):
