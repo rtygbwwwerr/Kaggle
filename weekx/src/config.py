@@ -170,11 +170,22 @@ class Config(object):
 					   'sub_file':'../data/en_train_submission.csv',
 					   'origin_file':"../data/en_train_filted_class.csv",}
 	
+	data_args_tf_train = {'df_test':'../data/train_filted_classify.csv',
+					   'feat_classify':'../data/en_train_classify.npz',
+					   'feat_normalization':'../data/en_train.npz',
+					   'model_classify':None,
+					   'model_normal':["../model/tf/tf_teach_att_bl4_bl1_c0.18-0.00599-0.99769-0.99170-98.51500.ckpt-73998"],
+					   'test_ret_file':'../data/en_train_test_ret.csv',
+					   'test_ret_file_err':'../data/en_train_test_ret_err.csv',
+					   'ret_file':'../data/en_train_ret.csv',
+					   'sub_file':'../data/en_train_submission.csv',
+					   'origin_file':"../data/en_train_filted_class.csv",}
+	
 	data_args_test = {'df_test':'../data/test_filted_classify.csv',
 					   'feat_classify':'../data/en_test_classify.npz',
 					   'feat_normalization':'../data/en_test.npz',
 					   'model_classify':None,
-					   'model_normal':["../model/tf_teach_att_bl3_bl1_c0.32-0.00588-0.99792-0.99115-98.25900.ckpt-83808"],
+					   'model_normal':["../model/tf/tf_teach_att_bl4_bl1_c0.18-0.00599-0.99769-0.99170-98.51500.ckpt-73998"],
 					   'test_ret_file':'../data/en_train_test_ret.csv',
 					   'test_ret_file_err':None,
 					   'ret_file':'../data/en_test_ret.csv',
