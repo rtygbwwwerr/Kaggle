@@ -1155,7 +1155,7 @@ def gen_constant_dict_from_exts(root_path="../data/ext/"):
 	paths = []
 	for path in list_path:
 		file_path = os.path.join(root_path, path)
-		if os.path.isfile(file_path):
+		if os.path.isfile(file_path) and file_path.endswith('.csv'):
 			paths.append(file_path)
 	paths.append('../data/en_train.csv')
 	gen_constant_dict(paths)
