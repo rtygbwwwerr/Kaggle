@@ -1148,26 +1148,29 @@ def filter_data_by_len(data):
 	del filted['len']
 	return filted
 
-def gen_constant_dict():
-	data = pd.read_csv('../data/en_train.csv')
+def gen_constant_dict(files=['../data/en_train.csv']):
+	
 	before_after_dict = {}
-	def add_to_dic(key, val):
-		if before_after_dict.has_key(key):
-			vals = before_after_dict[key]
-			if val not in vals:
-				vals[val] = 1
+	for file in files:
+		data = pd.read_csv(file)
+		def add_to_dic(key, val):
+			if before_after_dict.has_key(key):
+				vals = before_after_dict[key]
+				if val not in vals:
+					vals[val] = 1
+				else:
+					vals[val] = vals[val] + 1
 			else:
-				vals[val] = vals[val] + 1
-		else:
-			vals = {}
-			vals[val] = 1
-			before_after_dict[key] = vals
-	data.apply(lambda x: add_to_dic(unicode(str(x['before'])), unicode(str(x['after']))), axis=1)
+				vals = {}
+				vals[val] = 1
+				before_after_dict[key] = vals
+		data.apply(lambda x: add_to_dic(unicode(str(x['before'])), unicode(str(x['after']))), axis=1)
+
 	list_words = []
 # 	list_after = []
 	
 	for key, value in before_after_dict.items():
-		if len(value) == 1 and key == value.keys()[0]:
+		if len(value) == 1 and (key == value.keys()[0]):
 			list_words.append(key)
 		elif len(value) == 2:
 			max_i = 0
