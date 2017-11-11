@@ -153,7 +153,7 @@ class SeqData:
 			except ValueError:  # output_sequence == ''
 				_wrong += 1.0
 			print info
-			infos.append(info)
+			infos.append(info + '\n')
 		return _right, _wrong, infos
 
 	def build(self):
