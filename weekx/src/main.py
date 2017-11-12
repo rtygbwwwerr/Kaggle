@@ -54,8 +54,8 @@ sys.setdefaultencoding('utf8')
 from __builtin__ import str
 cfg.init()
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -728,23 +728,24 @@ def restore_tf_model(model_prefix, sess, batch_size):
 
 	return model
 
-def decode_sequence_tf(X, model, save_path, beam_size=2):
-	
-	config = tf.ConfigProto()
-	with tf.Session(config=config) as sess:
-		restore_tf_model(sess, save_path)
-		start_tokens = tf.ones([batch_size], dtype=tf.int32) * self._START
-		beam_decoder = BeamSearchDecoder(
-			beam_decoder_cell,
-			word_embedding,
-			start_tokens,
-			self._EOS,
-			tiled_decoder_initial_state,
-			beam_width,
-			output_layer=out_func,
-		)
-		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
-	return " ".join(decoded_sentence)
+# def decode_sequence_tf(X, model, save_path, beam_size=2):
+# 	
+# 	config = tf.ConfigProto()
+# 	with tf.Session(config=config) as sess:
+# 		restore_tf_model(sess, save_path)
+# 		start_tokens = tf.ones([batch_size], dtype=tf.int32) * self._START
+# 		beam_decoder = BeamSearchDecoder(
+# 			beam_decoder_cell,
+# 			word_embedding,
+# 			start_tokens,
+# 			self._EOS,
+# 			tiled_decoder_initial_state,
+# 			beam_width,
+# 			output_layer=out_func,
+# 		)
+# 		
+# 		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
+# 	return " ".join(decoded_sentence)
 	
 def train_tf_tailored_teaching_attention(
 			sess, model, log_dir, ret_file_head, 
@@ -2476,6 +2477,7 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 		df_test_err = df_test[df_test['p_after']!=df_test['after']]
 		if test_ret_file_err is not None:
 			print "normalization error number is:" + str(len(df_test_err))
+			print df_test_err.head()
 			df_test_err.to_csv(test_ret_file_err)
 			print 'saved test normalization error result file:' + test_ret_file_err
 			err_index_file = test_ret_file_err[:test_ret_file_err.find(".csv")] + "_index"
@@ -2985,12 +2987,13 @@ def eval_trained_model(batch_size=256):
 		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 
 if __name__ == "__main__":
-	
+	data_process.extract_val_ret_err()
+# 	data_process.gen_constant_dict()
 # 	data_process.gen_alpha_table()
 # 	data_process.gen_out_vocab()
 # 	run_evalute()
-# 	df = pd.read_csv('../data/en_test.csv')
-# 	data_process.display_token_info(df, "of", "before")
+# 	df = pd.read_csv('../data/en_train.csv')
+# 	data_process.display_token_info(df, "#", "before")
 # 	data_process.gen_constant_dict()
 # 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
 # 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
@@ -3023,15 +3026,20 @@ if __name__ == "__main__":
 # 	
 # 	df = pd.read_csv('../data/en_train_filted_class.csv')
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
-	run_normalize(False, 0, False, cfg.data_args_test)
+# 	run_normalize(False, 0, False, cfg.data_args_test)
 # 	experiment_simple_gru(nb_epoch=100, input_num=10000, cls_id=0, pre_train_model_file=None)
 # 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
 # 	experiment_simple_lstm()
-#	experiment_teaching_tf(batch_size=256, nb_epoch=1, input_num=100, cls_id=0,
-#						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
+# 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
+
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=30, input_num=0, cls_id=0,
+# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
 # 	t.add_arc(0, 1, 'a', 'A')
@@ -3051,5 +3059,5 @@ if __name__ == "__main__":
 # 	data_process.display_sentence(218309, df)
 # 	
 # 	data_process.display_sentence(110195, df)
-#	eval_trained_model(batch_size=256)
+# 	eval_trained_model(batch_size=256)
 
