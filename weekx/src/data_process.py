@@ -371,7 +371,7 @@ def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normali
 		if i % 100000 == 0:
 			print i
 			
-		if data.at[i, 'new_class'] == 0:
+		if data.at[i, 'new_class1'] == 0:
 			continue
 		
 		token_id = data.at[i, 'token_id']
@@ -489,7 +489,7 @@ def extract_ngram_feature(data, ngram=2):
 		if i % 100000 == 0:
 			print i
 	
-		if data.at[i, 'new_class'] == 0:
+		if data.at[i, 'new_class1'] == 0:
 			continue
 		
 # 		add_to_dic(data.at[i, 'before'], data.at[i, 'after'])
@@ -594,17 +594,21 @@ def extract_y_info(data):
 
 # 	dic = load_dict('../data/out_vocab.csv')
 
-	def covert(x):
-		words = unicode(str(x)).strip().split(' ')
-		values = map(lambda x: cfg.w2i(x), words)
+	def covert(x, is_copy=False):
+		values = None
+		if is_copy:
+			values = [cfg.copy_flag_index]
+		else:
+			words = unicode(str(x)).strip().split(' ')
+			values = map(lambda x: cfg.w2i(x), words)
 		values.insert(0, cfg.start_flg_index)
 		values.append(cfg.end_flg_index)
 		return values
 	list_values = []
 	for i in range(len(data)):
-		if data.at[i, 'new_class'] == 0:
+		if data.at[i, 'new_class1'] == 0:
 			continue
-		values = covert(data.at[i, 'after'])
+		values = covert(data.at[i, 'after'], (data.at[i, 'new_class1'] == 3))
 		list_values.append(values)
 # 	y = data['after'].apply(lambda x : covert(x))
 	
@@ -614,16 +618,16 @@ def extract_y_info(data):
 	return y
 
 def recover_y_info(y_ids):
-    if not y_ids:
-        return ''
-
-    while len(y_ids) > 0 and y_ids[0] == cfg.start_flg_index:
-        y_ids = y_ids[1:]
-
-    while len(y_ids) > 0 and (y_ids[-1] < 0 or y_ids[-1] == cfg.end_flg_index):
-        y_ids = y_ids[0:len(y_ids)-1]
-
-    return ' '.join([cfg.i2w(i) for i in y_ids])
+	if not y_ids:
+		return ''
+	
+	while len(y_ids) > 0 and y_ids[0] == cfg.start_flg_index:
+		y_ids = y_ids[1:]
+	
+	while len(y_ids) > 0 and (y_ids[-1] < 0 or y_ids[-1] == cfg.end_flg_index):
+		y_ids = y_ids[0:len(y_ids)-1]
+	
+	return ' '.join([cfg.i2w(i) for i in y_ids])
 
 def extract_y_class_info(data):
 	y = None
@@ -740,33 +744,33 @@ def gen_test_feature(df):
 def gen_train_feature(df):
 
 ## 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
-	y_t_cls = df['new_class'].values
-	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
+	y_t_cls = df['new_class1'].values
+# 	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
 	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
 	x_t = extract_2gram_feature(df)
 	y_t = extract_y_info(df)
 	index = np.where(y_t_cls!=0)[0].tolist()
-	y_t_cls = y_t_cls[index]
-	y_t_cls = y_t_cls - 1
+# 	y_t_cls = y_t_cls[index]
+# 	y_t_cls = y_t_cls - 1
 	
 	##combine the class 1 and class2 as class0, change the class3 to class1
-	y_t_2cls = y_t_cls - 1
-	y_t_2cls = np.where(y_t_2cls > 0, 1, 0)
-	y_t_2cls = to_categorical(y_t_2cls)
+# 	y_t_2cls = y_t_cls - 1
+# 	y_t_2cls = np.where(y_t_2cls > 0, 1, 0)
+# 	y_t_2cls = to_categorical(y_t_2cls)
 	
-	y_t_cls = to_categorical(y_t_cls)
+# 	y_t_cls = to_categorical(y_t_cls)
 	df_out = df.iloc[index]
 	print(x_t.shape[0])
-	print(x_t_cls.shape[0])
+# 	print(x_t_cls.shape[0])
 	print(y_t.shape[0])
-	print(y_t_cls.shape[0])
+# 	print(y_t_cls.shape[0])
 	print len(df_out)
 	
  	df_out.to_csv('../data/train_cls0.csv', index=False)
- 	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
+#  	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
 # 	np.savez("../data/en_train_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
  	np.savez("../data/train_cls0.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
-	save_numpy_data("../data/train_y_2class.npy", y_t_2cls)
+# 	save_numpy_data("../data/train_y_2class.npy", y_t_2cls)
 def down_sampling(x, y):
 	del_index = []
 	for i, y_sub in enumerate(y):
@@ -1159,7 +1163,7 @@ def gen_constant_dict_from_exts(root_path="../data/ext/"):
 			paths.append(file_path)
 	paths.append('../data/en_train.csv')
 	gen_constant_dict(paths)
-	
+			
 def gen_constant_dict(files=['../data/en_train.csv']):
 	
 	before_after_dict = {}
@@ -1211,7 +1215,7 @@ def display_data_info(data):
 def add_class_info(in_path, out_path):
 	df = pd.read_csv(in_path)
 # 	before_after_dict = gen_before_after_dict(df)
-	
+	flag_set = set("")
 	def get_new_class0(row):
 		cls = -1
 		if (row['before'] in cfg.dic_constant):
@@ -1234,7 +1238,11 @@ def add_class_info(in_path, out_path):
 	def get_new_class1(row):
 		cls = -1
 		if (row['before'] in cfg.dic_constant):
-			cls = 0
+			if row['before'] in flag_set:
+				cls = 0
+			else:
+				cls = 3
+				flag_set.add(row['before'])
 		elif row['class'] in cfg.class1 or row['class'] in cfg.class2:
 			cls = 1
 		elif row['class'] in cfg.class3:
@@ -1278,7 +1286,7 @@ def gen_one2one_dict(df):
 	print "saved one2one dict size is:%d "%(len(before_after_dict))
 	
 	dump(before_after_dict, "../data/one2one_dict")
-	
+
 def extract_val_ret_err():
 	file = open('../data/valid_ret.txt', 'r')
 	wrong_list = []
@@ -1323,7 +1331,6 @@ def convert_ext_to_csv(root_path='../data/ext/'):
 			print df.head(3)
 			df.to_csv(file_path + '.csv', index=False)
 	print 'total data number:%d'%(total_num)
-	
 if __name__ == "__main__":
 	
 	train = pd.read_csv('../data/en_train_filted.csv')
