@@ -741,8 +741,75 @@ def gen_test_feature(df):
 	np.savez("../data/en_test_classify.npz", x_t = x_t_cls)
 	np.savez("../data/en_test.npz", x_t_c = x_t_c, x_t = x_t)
 # 	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
-def gen_train_feature(df):
 
+def get_base_name(path):
+	name = os.path.basename(path)
+	if name.find('.') > 0:
+		name = name[0:name.rfind('.')]
+	return name
+
+def gen_train_feature_from_files(root_path = '../data/ext/'):
+	paths = gen_input_paths(root_path)
+	
+	for path in paths:
+		name = get_base_name(path)
+		head = root_path + name
+		out_path = head + '_class.csv'
+		print 'Processing file:{0}, head:{1}'.format(path, head)
+		add_class_info(path, out_path)
+		print 'Starting read info from:' + out_path
+		df = pd.read_csv(out_path)
+		x_t_c, x_t, y_t, df_out = get_features(df)
+		df_out.to_csv(head + '_train_cls0.csv', index=False)	
+		np.savez(head + "_train_cls0.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+
+def filter_reduplicated_data(x):
+	orig_len = x.shape[0]
+	_, index = np.unique(x, axis=0, return_index=True)
+	index.sort()
+	x = x[index]
+	print "orignal row:{}, discard reduplicated row:{}".format(orig_len, orig_len - x.shape[0])
+	return x, index
+	
+def gen_filtered_data(file_head):
+	
+# 	df_orig = pd.read_csv("{}_class.csv".format(file_head))
+	df = pd.read_csv("{}_train_cls0.csv".format(file_head))
+	data = np.load("{}_train_cls0.npz".format(file_head))
+# 	data = np.load("../data/train_cls0.npz".format(file_head))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	x_t = data['x_t']
+
+	x_t_c, index = filter_reduplicated_data(x_t_c)
+	x_t = x_t[index]
+	y_t = y_t[index]
+	df_out = df.iloc[index]	
+	
+	df_out.to_csv(file_head + '_train_cls0_filtered.csv', index=False)	
+	np.savez(file_head + "_train_cls0_filtered.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+
+def get_training_data_from_files(root_path):
+	paths = gen_input_paths(root_path, ".npz")
+	x_list = []
+	y_list = []
+	
+	print "We'll load {} files...".format(len(paths))
+	for path in paths:
+		print "load data from:" + path
+		data = np.load(path)
+		x_list.append(data['x_t_c'])
+		y_list.append(data['y_t'])
+		
+	
+	x_t_c = np.vstack(x_list)
+	y_t = np.vstack(y_list)
+	x_t_c, index = filter_reduplicated_data(x_t_c)
+	y_t = y_t[index]
+
+	return x_t_c, y_t
+		
+def get_features(df):
 ## 	x_char_l, x_char_m, x_char_r = extract_fragment_char_feature(df, cfg.max_left_input_len, cfg.max_mid_input_len, cfg.max_mid_input_len)
 	y_t_cls = df['new_class1'].values
 # 	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
@@ -765,6 +832,12 @@ def gen_train_feature(df):
 	print(y_t.shape[0])
 # 	print(y_t_cls.shape[0])
 	print len(df_out)
+	
+	return x_t_c, x_t, y_t, df_out
+	
+def gen_train_feature(df):
+
+	x_t_c, x_t, y_t, df_out = get_features(df)
 	
  	df_out.to_csv('../data/train_cls0.csv', index=False)
 #  	np.savez("../data/en_train_classify.npz", x_t = x_t_cls, y_t=y_t_cls)
@@ -1153,16 +1226,22 @@ def filter_data_by_len(data):
 	return filted
 
 def gen_constant_dict_from_exts(root_path="../data/ext/"):
+	paths = gen_input_paths(root_path)
+	paths.append('../data/en_train.csv')
+	gen_constant_dict(paths)
+	
+def gen_input_paths(root_path="../data/ext/", file_ext_name=".csv"):
 	list_path = os.listdir(root_path)
 	
 # 	total_num = 0
 	paths = []
 	for path in list_path:
 		file_path = os.path.join(root_path, path)
-		if os.path.isfile(file_path) and file_path.endswith('.csv'):
+		if os.path.isfile(file_path) and file_path.endswith(file_ext_name):
 			paths.append(file_path)
-	paths.append('../data/en_train.csv')
-	gen_constant_dict(paths)
+# 	paths.append('../data/en_train.csv')
+	
+	return paths
 			
 def gen_constant_dict(files=['../data/en_train.csv']):
 	

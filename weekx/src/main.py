@@ -2145,11 +2145,16 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 # 	index_start = model_file.find("_weights.") + len('_weights.')
 # 	index_end = model_file.find("-")
 # 	initial_epoch = int(model_file[index_start:index_end])
+
 	
+		
 def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_prefix=None):
-	data = np.load("../data/train_cls{}.npz".format(cls_id))
-	x_t_c = data['x_t_c']
-	y_t = data['y_t']
+# 	data = np.load("../data/train_cls{}.npz".format(cls_id))
+# 	x_t_c = data['x_t_c']
+# 	y_t = data['y_t']
+
+	x_t_c, y_t = data_process.get_training_data_from_files("../data/train/")
+
 	if input_num > 0:
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
@@ -2986,8 +2991,14 @@ def eval_trained_model(batch_size=256):
 			wrong += now_wrong
 		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 
+
+
 if __name__ == "__main__":
-# 	data_process.extract_val_ret_err()
+
+# 	data_process.filter_reduplicated_data('../data/ext/output-00003-of-00100')
+# 	df = pd.read_csv('../data/ext/output-00039-of-00100_class.csv')
+	
+#  	data_process.gen_train_feature_from_files()
 # 	data_process.gen_constant_dict()
 # 	data_process.gen_alpha_table()
 # 	data_process.gen_out_vocab()
@@ -3060,4 +3071,3 @@ if __name__ == "__main__":
 # 	
 # 	data_process.display_sentence(110195, df)
 # 	eval_trained_model(batch_size=256)
-
