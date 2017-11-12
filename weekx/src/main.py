@@ -2987,7 +2987,7 @@ def eval_trained_model(batch_size=256):
 		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 
 if __name__ == "__main__":
-	data_process.extract_val_ret_err()
+# 	data_process.extract_val_ret_err()
 # 	data_process.gen_constant_dict()
 # 	data_process.gen_alpha_table()
 # 	data_process.gen_out_vocab()
@@ -3037,8 +3037,8 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-# 	experiment_teaching_tf(batch_size=256, nb_epoch=30, input_num=0, cls_id=0,
-# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+	experiment_teaching_tf(batch_size=256, nb_epoch=30, input_num=0, cls_id=0,
+						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
