@@ -763,6 +763,16 @@ def gen_train_feature_from_files(root_path = '../data/ext/'):
 		df_out.to_csv(head + '_train_cls0.csv', index=False)	
 		np.savez(head + "_train_cls0.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
 
+def filter_unknown_data(x_list):
+	#remember, we always use the first item as standard
+	x = x_list[0]
+	orig_len = x.shape[0]
+	#discard a row, if there are more than one unk chars
+	index = np.where(np.sum(x==cfg.unk_flg_index, 1) > 1)[0]
+	out_list = map(lambda x_i:np.delete(x_i, index, axis=0), x_list)
+	print "orignal row:{}, discard unknown row:{}".format(orig_len, orig_len - out_list[0].shape[0])
+	return out_list
+
 def filter_overlength_data(x_list, limit_max_len):
 	#remember, we always use the first item as standard
 	x = x_list[0]
@@ -820,6 +830,8 @@ def get_training_data_from_files(root_path):
 	y_t = y_t[index]
 	
 	y_t, x_t_c = filter_overlength_data([y_t, x_t_c], cfg.max_output_len)
+	y_t, x_t_c = filter_unknown_data([y_t, x_t_c])
+	
 
 	return x_t_c, y_t
 		
