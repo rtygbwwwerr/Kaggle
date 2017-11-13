@@ -3048,7 +3048,7 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=30, input_num=0, cls_id=0,
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()

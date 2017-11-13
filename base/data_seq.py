@@ -174,6 +174,9 @@ class NumpySeqData(SeqData):
 	def _convert_numpydata_to_list(x, y, PAD):
 		from_lens = x.shape[1] - np.sum(x==PAD, axis=1)
 		to_lens = y.shape[1] - np.sum(y==PAD, axis=1)
+		#delete END flag
+# 		to_lens = to_lens - 1
+		print "max input len:%d, max output len is:%d"%(np.max(from_lens), np.max(to_lens))
 		for i in range(len(from_lens)):
 			yield [list(x[i, :from_lens[i]]), list(y[i, :to_lens[i]])]
 			

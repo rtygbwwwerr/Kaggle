@@ -1240,21 +1240,18 @@ class Seq2SeqModel:
 	def _build_loss(self, decoder_logits, decoder_inputs, decoder_lengths):
 		with tf.variable_scope('loss_target'):
 			#build decoder output, with appropriate padding and mask
-# 			batch_size = tf.shape(decoder_inputs)[0]
-# 			pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
-# 			paded_decoder_inputs = tf.concat([decoder_inputs, pads], 1)
-# 			max_decoder_time = tf.reduce_max(decoder_lengths) + 1
-			max_decoder_time = tf.reduce_max(decoder_lengths)
-			decoder_target = decoder_inputs[:, :max_decoder_time]
+			batch_size = tf.shape(decoder_inputs)[0]
+			pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
+			paded_decoder_inputs = tf.concat([decoder_inputs, pads], 1)
+			max_decoder_time = tf.reduce_max(decoder_lengths) + 1
+			decoder_target = paded_decoder_inputs[:, :max_decoder_time]
 
-# 			#one_hot code for lengths
-# 			decoder_eos = tf.one_hot(decoder_lengths, depth=max_decoder_time,
-# 									 on_value=1, off_value=self._PAD,
-# 									 dtype=tf.int32)
-# 			#add end flag for each sequence
-# 			decoder_target += decoder_eos
+			decoder_eos = tf.one_hot(decoder_lengths, depth=max_decoder_time,
+									 on_value=1, off_value=self._PAD,
+									 dtype=tf.int32)
+			decoder_target += decoder_eos
 
-			decoder_loss_mask = tf.sequence_mask(decoder_lengths,
+			decoder_loss_mask = tf.sequence_mask(decoder_lengths + 1,
 												 maxlen=max_decoder_time,
 												 dtype=tf.float32)
 
@@ -1475,13 +1472,13 @@ class Seq2SeqModel:
 			out_func = layers_core.Dense(
 				self._vocab_size, use_bias=False)
 
-# 			goes = tf.ones([batch_size, 1], dtype=tf.int32) * self._START
-# 			goes_decoder_inputs = tf.concat([goes, decoder_inputs], 1)
-			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, decoder_inputs)
+			goes = tf.ones([batch_size, 1], dtype=tf.int32) * self._START
+			goes_decoder_inputs = tf.concat([goes, decoder_inputs], 1)
+			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
 
 			training_helper = TrainingHelper(
 				embed_decoder_inputs,
-				decoder_lengths
+				decoder_lengths + 1
 			)
 			decoder = BasicDecoder(
 				decoder_cell,
