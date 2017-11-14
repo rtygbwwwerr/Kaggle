@@ -48,11 +48,13 @@ from math import ceil, floor
 from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
 import sys
+from post_processor import RuleBasedNormalizer
 
 reload(sys)
 sys.setdefaultencoding('utf8')
 from __builtin__ import str
 cfg.init()
+rule_norm_obj = RuleBasedNormalizer()
 
 # import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "3"
@@ -2444,7 +2446,7 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 	if len(index_origin) == len(df_test):
 		df_origin.at[index_origin, 'p_after'] = df_test['p_after'].values.tolist()
 		#if it is copy flag, then copy the before value
-		df_origin['p_after'] = df_origin.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
+		#df_origin['p_after'] = df_origin.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
 		df_origin.to_csv(ret_file, index=False)
 		print "saved predicted origin file:" + ret_file
 
@@ -2564,10 +2566,23 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 				normalizations.append(p_after)
 				#print '### %d' % (begin_idx + j), before, '-->', p_after
 
-		# Save to column of dataframe.
-		df_test['p_after'] = pd.Series(normalizations)
-	
-	
+	# Save to column of dataframe.
+	df_test['p_after'] = pd.Series(normalizations)
+
+	# Post process of the result output by model.
+	df_test['p_after'] = df_test.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
+	df_temp = pd.DataFrame(columns=['changed', 'before', 'p_after', 'norm_after'])
+	for i in range(len(df_test)):
+		before = str(df_test.loc[i, 'before'])
+		p_after = str(df_test.loc[i, 'p_after'])
+		normed, norm_after = rule_norm_obj.normalize(before)
+		if normed:
+			if norm_after != p_after:
+				df_test.at[i, 'p_after'] = norm_after
+				df_temp.loc[len(df_temp)] = ['1', before, p_after, norm_after]
+			else:
+				df_temp.loc[len(df_temp)] = ['0', before, p_after, norm_after]
+	df_temp.to_csv('debug.csv', index=False)
 def decode_teach(X, df_test, weights_file):
 	
 	model = gen_model_teaching_LSTM()
