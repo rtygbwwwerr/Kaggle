@@ -1392,15 +1392,22 @@ def gen_one2one_dict(df):
 	
 	dump(before_after_dict, "../data/one2one_dict")
 
-def extract_val_ret_err():
-	file = open('../data/valid_ret.txt', 'r')
+def extract_val_ret_err(epoch=None):
+	file = None
+	if epoch is not None:
+		file = open('../data/valid_ret_{}.txt'.format(epoch), 'r')
+	else:
+		file = open('../data/valid_ret.txt', 'r')
 	wrong_list = []
 	lines = file.readlines()
 	for line in lines:
 		if line.startswith('[False]'):
 			wrong_list.append(line)
 	file.close()
-	file = open('../data/valid_ret_err.txt', 'w')
+	if epoch is not None:
+		file = open('../data/valid_ret_err_{}.txt'.format(epoch), 'w')
+	else:
+		file = open('../data/valid_ret_err.txt', 'w')
 	file.writelines(wrong_list)
 	file.close()
 

@@ -841,9 +841,10 @@ def train_tf_tailored_teaching_attention(
 																					    seq_acc=epoch_acc_seq,
 																					    val_acc=100*right/float(right+wrong),
 																					    )
-		fp = open("../data/valid_ret.txt", "w")
+		fp = open("../data/valid_ret_{}.txt".format(epoch), "w")
 		fp.writelines(val_ret)
 		fp.close()
+		data_process.extract_val_ret_err(epoch)
 		saved_path = saver.save(sess, path, global_step=model.train_step)
 		print "saved check file:" + saved_path
 		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
@@ -2994,7 +2995,7 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
-
+	data_process.extract_val_ret_err()
 # 	data_process.filter_reduplicated_data('../data/ext/output-00003-of-00100')
 # 	df = pd.read_csv('../data/ext/output-00039-of-00100_class.csv')
 	
@@ -3048,8 +3049,8 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
+# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
