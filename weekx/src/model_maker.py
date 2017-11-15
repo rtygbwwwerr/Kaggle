@@ -1151,7 +1151,7 @@ class Seq2SeqModel:
 		self._batch_size = None
 		self._embedding_dim = embedding_dim
 		self._vocab_size = vocab_size
-		self._dropout = dropout
+# 		self._dropout = dropout
 		self._n_encoder_layers = n_encoder_layers
 		self._n_decoder_layers = n_decoder_layers
 		self._encoder_hidden_size = encoder_hidden_size
@@ -1275,7 +1275,7 @@ class Seq2SeqModel:
 
 		return seq_loss
 
-	def _create_RNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
+	def _create_RNNLayers(self, state_size, keep_output_rate, n_encoder_layers, is_training):
 		cells = None
 		# build cell
 		if self._encoder_cell_type == 'BN_LSTM':
@@ -1290,12 +1290,12 @@ class Seq2SeqModel:
 
 		else:
 			raise ValueError
-		if self._dropout > 0.0:
-			cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=dropout)
+		
+		cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
 		cells  = tf.nn.rnn_cell.MultiRNNCell([cells] * n_encoder_layers)
 		return cells
 	
-	def _create_biRNNLayers(self, state_size, dropout, n_encoder_layers, is_training):
+	def _create_biRNNLayers(self, state_size, keep_output_rate, n_encoder_layers, is_training):
 		fw_cells = None
 		bw_cells = None
 		# build cell
@@ -1313,9 +1313,10 @@ class Seq2SeqModel:
 			bw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
 		else:
 			raise ValueError
-		if self._dropout > 0.0:
-			fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=dropout)
-			bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=dropout)
+		
+		fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
+		bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
+		
 		fw_cells  = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
 		bw_cells  = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
 		return fw_cells, bw_cells
@@ -1334,7 +1335,7 @@ class Seq2SeqModel:
 
 		with tf.variable_scope('encoder'):
 			if self._is_bidrection:
-				fw_cells, bw_cells = self._create_biRNNLayers(self._encoder_hidden_size, self._dropout, 
+				fw_cells, bw_cells = self._create_biRNNLayers(self._encoder_hidden_size, self._keep_output_rate, 
 																self._n_encoder_layers, self._is_training)
 				
 				(fw_output, bw_output), (fw_final_state, bw_final_state) =\
@@ -1362,7 +1363,7 @@ class Seq2SeqModel:
 						[fw_final_state, bw_final_state], 1)
 
 			else:
-				cells = self._create_RNNLayers(self._encoder_hidden_size, self._dropout, 
+				cells = self._create_RNNLayers(self._encoder_hidden_size, self._keep_output_rate, 
 																self._n_encoder_layers, self._is_training)
 				encoder_outputs, encoder_final_state = tf.nn.dynamic_rnn(
 					cells,
@@ -1399,8 +1400,8 @@ class Seq2SeqModel:
 				cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())	
 			else:
 				raise ValueError
-			if self._dropout > 0.0:
-				cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self._dropout)
+			
+			cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self._keep_output_rate)
 #  			cells = tf.nn.rnn_cell.MultiRNNCell([cells] * self._n_decoder_layers)
 			original_decoder_cell = cells
 
@@ -1486,7 +1487,7 @@ class Seq2SeqModel:
 # 			)
 
 			
-			sampling_probability = tf.train.exponential_decay(
+			sampling_probability = 1.0 - tf.train.exponential_decay(
 				1.0,
 				self.train_step,
 				10000,
@@ -1548,7 +1549,7 @@ class Seq2SeqModel:
 			'beam_decoder_state': beam_decoder_state,
 			'beam_decoder_sequence_outputs': beam_decoder_sequence_lengths
 		}
-		return decoder_results
+		return decoder_results, sampling_probability
 			
 	def _build_inputs(self, input_batch):
 		
@@ -1575,6 +1576,11 @@ class Seq2SeqModel:
 				dtype=tf.int32,
 				name='decoder_lengths'
 			)
+			
+			self._inputs['keep_output_rate'] = tf.placeholder(
+				dtype=tf.float32,
+				name='keep_output_rate'
+			)
 
 		else:
 			encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = input_batch
@@ -1587,23 +1593,25 @@ class Seq2SeqModel:
 				'encoder_inputs': encoder_inputs,
 				'encoder_lengths': encoder_lengths,
 				'decoder_inputs': decoder_inputs,
-				'decoder_lengths': decoder_lengths
+				'decoder_lengths': decoder_lengths,
 			}
 
 		return self._inputs['encoder_inputs'], self._inputs['encoder_lengths'], \
-			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths']
+			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths'], self._inputs['keep_output_rate']
 
 	def _build_graph(self, input_batch):
 		with tf.variable_scope('train'):
 			self.train_step = tf.Variable(0, name='global_step', trainable=False)
 		
 		
-		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = self._build_inputs(input_batch)
+		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate = self._build_inputs(input_batch)
 		self.encoder_inputs = encoder_inputs
+		self._keep_output_rate = keep_output_rate
 
 		encoder_outputs, encoder_state = self._build_encoder(encoder_inputs, encoder_lengths)
-		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
+		decoder_result, sampling_probability = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
 											 decoder_inputs, decoder_lengths)
+		self.sampling_probability = sampling_probability
 		self.decoder_outputs = decoder_result['decoder_outputs']
 		self.decoder_result_ids = tf.identity(decoder_result['decoder_result_ids'], name='decoder/decoder_result_ids')
 		self.beam_search_result_ids = tf.identity(decoder_result['beam_decoder_result_ids'], name='decoder/beam_decoder_result_ids')
@@ -1630,6 +1638,7 @@ class Seq2SeqModel:
 		self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
 		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
 		self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
+		self._inputs['keep_output_rate'] = sess.graph.get_tensor_by_name("keep_output_rate:0")
 		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
 		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
 		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
