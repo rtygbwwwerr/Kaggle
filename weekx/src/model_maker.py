@@ -1484,7 +1484,7 @@ class Seq2SeqModel:
 # 			)
 
 			
-			sampling_probability = tf.train.exponential_decay(
+			sampling_probability = 1.0 - tf.train.exponential_decay(
 				1.0,
 				self.train_step,
 				10000,
@@ -1546,7 +1546,7 @@ class Seq2SeqModel:
 			'beam_decoder_state': beam_decoder_state,
 			'beam_decoder_sequence_outputs': beam_decoder_sequence_lengths
 		}
-		return decoder_results
+		return decoder_results, sampling_probability
 			
 	def _build_inputs(self, input_batch):
 		
@@ -1606,8 +1606,9 @@ class Seq2SeqModel:
 		self._keep_output_rate = keep_output_rate
 
 		encoder_outputs, encoder_state = self._build_encoder(encoder_inputs, encoder_lengths)
-		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
+		decoder_result, sampling_probability = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
 											 decoder_inputs, decoder_lengths)
+		self.sampling_probability = sampling_probability
 		self.decoder_outputs = decoder_result['decoder_outputs']
 		self.decoder_result_ids = tf.identity(decoder_result['decoder_result_ids'], name='decoder/decoder_result_ids')
 		self.beam_search_result_ids = tf.identity(decoder_result['beam_decoder_result_ids'], name='decoder/beam_decoder_result_ids')

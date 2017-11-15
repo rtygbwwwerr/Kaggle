@@ -789,8 +789,8 @@ def train_tf_tailored_teaching_attention(
 			data_dict['keep_output_rate'] = cfg.ed_keep_rate
 			feed_dict = model.make_feed_dict(data_dict)
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
-			    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.summary_op], feed_dict)
+			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, sampling_prob, summaries= \
+			    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.sampling_probability, model.summary_op], feed_dict)
 
 			if (step + 1) % 1 == 0:
 				
@@ -801,7 +801,7 @@ def train_tf_tailored_teaching_attention(
 				avg_acc = epoch_acc / (step + 1)
 				avg_acc_seq = epoch_acc_seq / (step + 1)
 				
-				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(
+				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
 																			 epoch=epoch,
 																			 total_epoch=max_epoch,
 																			 cur_step=step+1,
@@ -813,6 +813,7 @@ def train_tf_tailored_teaching_attention(
 			                    											 acc_avg=avg_acc,
 			                    											 seq_acc_avg=avg_acc_seq,
 			                    											 grad = grads,
+			                    											 sp = sampling_prob,
 			                    											 lr=learn_rate)
 			
 # 				dataset.interpret_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], decoder_result_ids)
@@ -3130,7 +3131,7 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100, cls_id=0,
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
 						   file_head="tf_teach_sche_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
