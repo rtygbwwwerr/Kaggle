@@ -56,8 +56,8 @@ from __builtin__ import str
 cfg.init()
 rule_norm_obj = RuleBasedNormalizer()
 
-# import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -3010,7 +3010,7 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
-	data_process.extract_val_ret_err()
+# 	data_process.extract_val_ret_err()
 # 	data_process.filter_reduplicated_data('../data/ext/output-00003-of-00100')
 # 	df = pd.read_csv('../data/ext/output-00039-of-00100_class.csv')
 	
@@ -3064,8 +3064,8 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
+						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()

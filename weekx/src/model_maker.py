@@ -19,7 +19,7 @@ from tensorflow.contrib.rnn import LSTMCell, LSTMStateTuple, GRUCell
 from tensorflow.contrib.layers import xavier_initializer
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, \
 									   BasicDecoder, BeamSearchDecoder, dynamic_decode, \
-									   TrainingHelper, sequence_loss, tile_batch, \
+									   TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
 									   BahdanauAttention, LuongAttention
 from nbformat.v4.tests.nbexamples import cells
 
@@ -1173,10 +1173,9 @@ class Seq2SeqModel:
 		
 	def _build_train_step(self, loss):
 		with tf.variable_scope('train'):
-			train_step = tf.Variable(0, name='global_step', trainable=False)
 			lr = tf.train.exponential_decay(
 				self._init_learning_rate,
-				train_step,
+				self.train_step,
 				self._decay_steps,
 				self._decay_factor,
 				staircase=True
@@ -1204,11 +1203,11 @@ class Seq2SeqModel:
 				grads += tf.reduce_sum(tf.reduce_sum(grads_vars[i][0]), name="total_grads")
 			self._grads = tf.identity(grads, name='gradient')
 
-			apply_gradient_op = opt.apply_gradients(grads_vars, global_step=train_step)
+			apply_gradient_op = opt.apply_gradients(grads_vars, global_step=self.train_step)
 			with tf.control_dependencies([apply_gradient_op]):
 				train_op = tf.no_op(name='train_step')
 
-		return train_step, train_op
+		return train_op
 	
 	def _build_summary(self):
 		tf.summary.scalar('learning_rate', self.lr)
@@ -1474,12 +1473,34 @@ class Seq2SeqModel:
 
 			goes = tf.ones([batch_size, 1], dtype=tf.int32) * self._START
 			goes_decoder_inputs = tf.concat([goes, decoder_inputs], 1)
+			
+			#using teaching force without schedule			
 			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
+# 
+# 			training_helper = TrainingHelper(
+# 				embed_decoder_inputs,
+# 				decoder_lengths + 1
+# 			)
 
-			training_helper = TrainingHelper(
-				embed_decoder_inputs,
-				decoder_lengths + 1
+			
+			sampling_probability = tf.train.exponential_decay(
+				1.0,
+				self.train_step,
+				10000,
+				0.1,
+				staircase=True
 			)
+			
+# 			def embedding_lookup(ids):
+# 				tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
+			
+			training_helper = ScheduledEmbeddingTrainingHelper(
+				embed_decoder_inputs,
+				decoder_lengths + 1,
+				word_embedding,
+				sampling_probability,
+			)
+			
 			decoder = BasicDecoder(
 				decoder_cell,
 				training_helper,
@@ -1570,6 +1591,10 @@ class Seq2SeqModel:
 			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths']
 
 	def _build_graph(self, input_batch):
+		with tf.variable_scope('train'):
+			self.train_step = tf.Variable(0, name='global_step', trainable=False)
+		
+		
 		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = self._build_inputs(input_batch)
 		self.encoder_inputs = encoder_inputs
 
@@ -1582,7 +1607,7 @@ class Seq2SeqModel:
 		self.beam_search_scores = decoder_result['beam_decoder_scores']
 
 		seq_loss = self._build_loss(self.decoder_outputs, decoder_inputs, decoder_lengths)
-		self.train_step, self.train_op = self._build_train_step(seq_loss)
+		self.train_op = self._build_train_step(seq_loss)
 		self.loss = tf.identity(seq_loss, name='seq_loss')
 		self.accuracy, self.accuracy_seqs = self._build_accuracy(decoder_result['decoder_result_ids'], self._inputs['decoder_inputs'], self._inputs['decoder_lengths'])
 		summary_op = self._build_summary()
