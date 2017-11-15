@@ -131,7 +131,8 @@ class Config(object):
 	hidden_size = 128 
 	drop_prob_1 = 0.25 # dropout after pooling with probability 0.25
 	drop_prob_2 = 0.5 # dropout in the FC layer with probability 0.5
-	ed_dropout = 0.9
+	ed_keep_rate = 0.9
+	de_keep_rate = 1.0
 	pool_size = 2
 	l2_lambda = 0.0001
 	conv_depth = 32 # use 32 kernels in both convolutional layers
@@ -185,7 +186,7 @@ class Config(object):
 					   'feat_classify':'../data/en_test_classify.npz',
 					   'feat_normalization':'../data/en_test.npz',
 					   'model_classify':None,
-					   'model_normal':["../model/tf/tf_teach_att_bl4_bl1_c0.18-0.00599-0.99769-0.99170-98.51500.ckpt-73998"],
+					   'model_normal':["../model/tf/tf_teach_sche_att_bl4_bl1_c0.02-1.27522-0.72720-0.62842-75.00000.ckpt-78"],
 					   'test_ret_file':'../data/en_train_test_ret.csv',
 					   'test_ret_file_err':None,
 					   'ret_file':'../data/en_test_ret.csv',

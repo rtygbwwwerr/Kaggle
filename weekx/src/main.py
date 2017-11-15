@@ -713,7 +713,7 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 	model = model_maker.make_tf_tailored_seq2seq(
 						n_encoder_layers = cfg.n_encoder_layers,
 						n_decoder_layers = cfg.n_decoder_layers,
-						dropout = cfg.ed_dropout,
+# 						dropout = cfg.ed_dropout,
 						encoder_hidden_size=cfg.encoder_hidden_size, 
 						decoder_hidden_size=cfg.decoder_hidden_size, 
 						batch_size=batch_size, 
@@ -786,7 +786,7 @@ def train_tf_tailored_teaching_attention(
 		epoch_acc = 0.
 		epoch_acc_seq = 0.
 		for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
-			
+			data_dict['keep_output_rate'] = cfg.ed_keep_rate
 			feed_dict = model.make_feed_dict(data_dict)
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
 			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, summaries= \
@@ -824,7 +824,7 @@ def train_tf_tailored_teaching_attention(
 		right, wrong = 0.0, 0.0
 		val_ret = []
 		for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
-			
+			data_dict['keep_output_rate'] = cfg.de_keep_rate
 			feed_dict = model.make_feed_dict(data_dict)
 			beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
 			beam_result_ids = beam_result_ids[:, :, 0]
@@ -2152,7 +2152,7 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 
 	
 		
-def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_prefix=None):
+def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_prefix=None):
 # 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 # 	x_t_c = data['x_t_c']
 # 	y_t = data['y_t']
@@ -2162,7 +2162,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 	if input_num > 0:
 		x_t_c = x_t_c[:input_num]
 		y_t = y_t[:input_num]
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=100000, random_state=0)
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=test_size, random_state=0)
 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	initial_epoch = 0
@@ -2174,7 +2174,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 			model = model_maker.make_tf_tailored_seq2seq(
 					n_encoder_layers = cfg.n_encoder_layers,
 					n_decoder_layers = cfg.n_decoder_layers,
-					dropout = cfg.ed_dropout,
+# 					dropout = cfg.ed_dropout,
 					encoder_hidden_size=cfg.encoder_hidden_size, 
 					decoder_hidden_size=cfg.decoder_hidden_size, 
 					batch_size=batch_size, 
@@ -2570,14 +2570,19 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 			batch_X_lens = calculate_lens(batch_X)
 			Y_empty = np.asarray([[]] * size)
 			Y_empty_lens = np.zeros(size)
-
+			
+			data_dict={}
+			data_dict['encoder_inputs'] = batch_X
+			data_dict['encoder_lengths'] = batch_X_lens
+			data_dict['decoder_inputs'] = Y_empty
+			data_dict['decoder_lengths'] = Y_empty_lens
+			data_dict['keep_output_rate'] = cfg.de_keep_rate
+			feed_dict_de = model.make_feed_dict(data_dict)
 			# Run prediction on batch data.
 			beam_result_ids = sess.run(
 					model.beam_search_result_ids,
-					feed_dict = {
-							model._inputs['encoder_inputs'] : batch_X, model._inputs['encoder_lengths'] : batch_X_lens,
-							model._inputs['decoder_inputs'] : Y_empty,
-							model._inputs['decoder_lengths'] : Y_empty_lens})
+					feed_dict = feed_dict_de)
+				
 			beam_result_ids = beam_result_ids[:, :, 0]
 
 			# Tranform output to real tokens.
@@ -3121,12 +3126,12 @@ if __name__ == "__main__":
 
 # 	out = data_process.recover_y_info([1, 1307, 256, 1136, 1307, 1056, 1307, 1464, 256, 3903, 1755, 2401, 1883, 3903, 1307, 1464, 1952, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
 # 	print out 
-	run_normalize(False, 0, False, cfg.data_args_test)
+# 	run_normalize(False, 1000, False, cfg.data_args_test)
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100, cls_id=0,
+						   file_head="tf_teach_sche_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
