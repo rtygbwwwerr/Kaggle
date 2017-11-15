@@ -708,7 +708,6 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 	saver = tf.train.import_meta_graph(model_prefix + '.meta')
 	saver.restore(sess, model_prefix)
 
-	
 	# Create model.
 	model = model_maker.make_tf_tailored_seq2seq(
 						n_encoder_layers = cfg.n_encoder_layers,
@@ -724,6 +723,7 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 						START = cfg.start_flg_index,
 						EOS = cfg.end_flg_index,
 						is_training = is_train,
+						is_restored = True,
 						)
 
 	# Restore parameters in Model object with restored value.
@@ -777,10 +777,9 @@ def train_tf_tailored_teaching_attention(
 	saver = tf.train.Saver(max_to_keep=100)
 # 	summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
 	train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
-	sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 	
 	print "Training Start!"
-	for epoch in range(1, max_epoch + 1):
+	for epoch in range(initial_epoch, max_epoch):
 		print "Epoch {}".format(epoch)
 		epoch_loss = 0.
 		epoch_acc = 0.
@@ -802,7 +801,7 @@ def train_tf_tailored_teaching_attention(
 				avg_acc_seq = epoch_acc_seq / (step + 1)
 				
 				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, lr:{lr:.8f}".format(
-																			 epoch=epoch,
+																			 epoch=epoch+1,
 																			 total_epoch=max_epoch,
 																			 cur_step=step+1,
 																			 all_step=step_nums,
@@ -845,7 +844,8 @@ def train_tf_tailored_teaching_attention(
 																					    val_acc=100*right/float(right+wrong),
 																					    )
 		fp = open("../data/valid_ret_{}.txt".format(epoch), "w")
-		fp.writelines(val_ret)
+		for line in val_ret:
+			fp.write('%s\n' % line)
 		fp.close()
 		data_process.extract_val_ret_err(epoch)
 		saved_path = saver.save(sess, path, global_step=model.train_step)
@@ -2165,7 +2165,6 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=100000, random_state=0)
 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
-	initial_epoch = 0
 
 	with tf.Session() as sess:
 		# Create model or load pre-trained model.
@@ -2185,7 +2184,12 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0, 
 					START = cfg.start_flg_index,
 					EOS = cfg.end_flg_index,
 					)
+			initial_epoch = 0
+			sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 		else:
+			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
+			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
+			initial_epoch = int(m.group(1))
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 
 		log_dir = '../logs/tf/'
@@ -2453,7 +2457,6 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 # 	f.close()
 	#only when origin data length equal to the test data length, we need to cope with it, otherwise, skip.
 	if len(index_origin) == len(df_test):
-		
 		df_origin.at[index_origin, 'p_after'] = df_test['p_after'].values.tolist()
 		#if it is copy flag, then copy the before value
 		#df_origin['p_after'] = df_origin.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
@@ -2605,6 +2608,8 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 			else:
 				df_temp.loc[len(df_temp)] = ['0', before, p_after, norm_after]
 # 	df_temp.to_csv('debug.csv', index=False)
+
+
 def decode_teach(X, df_test, weights_file):
 	
 	model = gen_model_teaching_LSTM()

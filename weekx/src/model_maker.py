@@ -1061,6 +1061,7 @@ def make_tf_tailored_seq2seq(
 				vocab_size, 
 				max_decode_iter_size,
 				is_training = True,
+				is_restored = False,
 				dropout = 0.9,
 				encoder_cell_type = 'BN_LSTM',
 				decoder_cell_type = 'LSTM',
@@ -1087,6 +1088,7 @@ def make_tf_tailored_seq2seq(
 				batch_size = batch_size, 
 				embedding_dim = embedding_dim, 
 				vocab_size = vocab_size, 
+				is_restored = is_restored,
 				is_training = is_training,
 				dropout = dropout,
 				encoder_cell_type = encoder_cell_type,
@@ -1120,6 +1122,7 @@ class Seq2SeqModel:
 				embedding_dim, 
 				vocab_size, 
 				is_training = True,
+				is_restored = False,
 				dropout = 0.9,
 				encoder_cell_type = 'BN_LSTM',
 				decoder_cell_type = 'LSTM',
@@ -1167,7 +1170,7 @@ class Seq2SeqModel:
 		self._decay_factor = decay_factor
 		self._minimum_learning_rate = minimum_learning_rate
 		self._inputs = {}
-		if self._is_training:
+		if not is_restored:
 			self._build_graph(input_batch)
 # 	def _current_lr(self):
 		
@@ -1500,7 +1503,7 @@ class Seq2SeqModel:
 				word_embedding,
 				sampling_probability,
 			)
-			
+
 			decoder = BasicDecoder(
 				decoder_cell,
 				training_helper,
@@ -1627,14 +1630,16 @@ class Seq2SeqModel:
 		self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
 		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
 		self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
-		self.train_op = sess.graph.get_operation_by_name("train/train_step")
+		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
 		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
 		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
 		self.accuracy = sess.graph.get_tensor_by_name("accuracy_target/acc:0")
 		self.accuracy_seqs = sess.graph.get_tensor_by_name("accuracy_target/seq_acc:0")
 		self.loss = sess.graph.get_tensor_by_name("seq_loss:0")
-		self._grads = sess.graph.get_tensor_by_name("train/gradient:0")
-		self.lr = sess.graph.get_tensor_by_name("train/lr_clip:0")
+		self._grads = sess.graph.get_tensor_by_name("train_1/gradient:0")
+		self.lr = sess.graph.get_tensor_by_name("train_1/lr_clip:0")
 		self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
 		self.summary_op = sess.graph.get_tensor_by_name("summary_op:0")
+		self.beam_search_scores = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose_1:0")
+		self.decoder_outputs = sess.graph.get_tensor_by_name("decoder/decoder/transpose:0")
 
