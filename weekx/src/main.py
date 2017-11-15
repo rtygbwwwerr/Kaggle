@@ -56,8 +56,8 @@ from __builtin__ import str
 cfg.init()
 rule_norm_obj = RuleBasedNormalizer()
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -703,12 +703,13 @@ def get_batch_data_onehot_copyNet(X, y, batchid, batch_size, shuffle=True):
 # 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
 	return X_batch, X_decode_batch, y_batch
 
-def restore_tf_model(model_prefix, sess, batch_size):
+def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 	# Load graph file.
 	saver = tf.train.import_meta_graph(model_prefix + '.meta')
 	saver.restore(sess, model_prefix)
 
-    # Create model.
+	
+	# Create model.
 	model = model_maker.make_tf_tailored_seq2seq(
 						n_encoder_layers = cfg.n_encoder_layers,
 						n_decoder_layers = cfg.n_decoder_layers,
@@ -722,7 +723,7 @@ def restore_tf_model(model_prefix, sess, batch_size):
 						PAD = cfg.pad_flg_index,
 						START = cfg.start_flg_index,
 						EOS = cfg.end_flg_index,
-						is_training = False,
+						is_training = is_train,
 						)
 
 	# Restore parameters in Model object with restored value.
@@ -2385,12 +2386,13 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 	cfg.max_output_len_decode = df_test['len'].max()
 	print "Max decode_teach output length is {}".format(cfg.max_output_len_decode)
 	del df_test['len']
-	
+
 	data = np.load(data_args['feat_classify'])
 	x_t_cls = data['x_t']
 	data = np.load(data_args['feat_normalization'])
 # 	x_t = data['x_t']
 	x_t_c = data['x_t_c']
+	np.savetxt("../data/X_test.txt", x_t_c.astype(np.int32), '%d')
 	
 	if test_size > 0:
 		x_t_c = x_t_c[:test_size]
@@ -2443,8 +2445,15 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 	print len(df_origin)
 	print len(index_origin)
 	print len(df_test)
+	
+	
+# 	test_list = map(lambda x : x + "\n", test_list)
+# 	f = open("../data/test_temp.txt", 'w')
+# 	f.writelines(test_list)
+# 	f.close()
 	#only when origin data length equal to the test data length, we need to cope with it, otherwise, skip.
 	if len(index_origin) == len(df_test):
+		
 		df_origin.at[index_origin, 'p_after'] = df_test['p_after'].values.tolist()
 		#if it is copy flag, then copy the before value
 		#df_origin['p_after'] = df_origin.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
@@ -2458,7 +2467,18 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 			df_sub.to_csv(sub_file, quoting=csv.QUOTE_ALL, index=False)
 			print 'saved submission file:' + sub_file
 	else:
-		print "test data not equal to the origin data, skip submission stage."
+		test_list = df_test['p_after'].values.tolist()
+	
+# 		test_list = map(lambda x : x + "\n", test_list)
+# 		f = open("../data/test_temp.txt", 'w')
+# 		f.writelines(test_list)
+# 		f.close()
+# 		print df_origin.loc[index_origin[0:len(test_list)]]
+# 		print index_origin[0:len(test_list)]
+		df_origin.at[index_origin[0:len(test_list)], 'p_after'] = test_list
+		df_origin = df_origin.loc[index_origin[0:len(test_list)]]
+		df_origin.to_csv("../data/test_temp.csv", index=False)
+		print "test data not equal to the origin data, skip submission stage. output ../data/test_temp.csv"
 		
 	df_test['p_after'] = df_test.apply(lambda x:x['before'] if str(x['p_after']).strip() == cfg.unk_flg else x['p_after'], axis=1)
 	
@@ -2535,7 +2555,7 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 
 	with tf.Session() as sess:
 		# Restore trained model.
-		model = restore_tf_model(model_prefix, sess, batch_size=256)
+		model = restore_tf_model(model_prefix, sess, 256, False)
 
 		# Do normalization on test data.
 		normalizations = []
@@ -2563,7 +2583,8 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 			# Tranform output to real tokens.
 			for j in range(size):
 				before = str(df_test.at[begin_idx + j, 'before'])
-				p_after = data_process.recover_y_info(beam_result_ids[j].tolist())
+				ids = beam_result_ids[j].tolist()
+				p_after = data_process.recover_y_info(ids)
 				normalizations.append(p_after)
 				#print '### %d' % (begin_idx + j), before, '-->', p_after
 
@@ -2574,8 +2595,8 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 	df_test['p_after'] = df_test.apply(lambda x:x['before'] if str(x['p_after']) == cfg.unk_flg else x['p_after'], axis=1)
 	df_temp = pd.DataFrame(columns=['changed', 'before', 'p_after', 'norm_after'])
 	for i in range(len(df_test)):
-		before = str(df_test.loc[i, 'before'])
-		p_after = str(df_test.loc[i, 'p_after'])
+		before = unicode(str(df_test.loc[i, 'before']))
+		p_after = unicode(str(df_test.loc[i, 'p_after']))
 		normed, norm_after = rule_norm_obj.normalize(before)
 		if normed:
 			if norm_after != p_after:
@@ -2583,7 +2604,7 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 				df_temp.loc[len(df_temp)] = ['1', before, p_after, norm_after]
 			else:
 				df_temp.loc[len(df_temp)] = ['0', before, p_after, norm_after]
-	df_temp.to_csv('debug.csv', index=False)
+# 	df_temp.to_csv('debug.csv', index=False)
 def decode_teach(X, df_test, weights_file):
 	
 	model = gen_model_teaching_LSTM()
@@ -2978,7 +2999,7 @@ def display_model():
 def eval_trained_model(batch_size=256):
 	path = "../model/tf_teach_att_bl3_bl1_c0.32-0.00588-0.99792-0.99115-98.25900.ckpt-83808"
 	with tf.Session() as sess:
-		model = restore_tf_model(path, sess, batch_size)
+		model = restore_tf_model(path, sess, batch_size, False)
 
 		X_train = np.loadtxt("../data/X_train.txt")
 		Y_train = np.loadtxt("../data/Y_train.txt")
@@ -3012,8 +3033,6 @@ def eval_trained_model(batch_size=256):
 if __name__ == "__main__":
 # 	data_process.extract_val_ret_err()
 # 	data_process.filter_reduplicated_data('../data/ext/output-00003-of-00100')
-# 	df = pd.read_csv('../data/ext/output-00039-of-00100_class.csv')
-	
 #  	data_process.gen_train_feature_from_files()
 # 	data_process.gen_constant_dict()
 # 	data_process.gen_alpha_table()
@@ -3023,8 +3042,8 @@ if __name__ == "__main__":
 # 	data_process.display_token_info(df, "NU.nl", "before")
 # 	data_process.gen_constant_dict()
 # 	data_process.add_class_info('../data/en_train_filted_all.csv', "../data/en_train_filted_class.csv")
-# 	data_process.add_class_info('../data/en_test.csv', "../data/en_test_class.csv")
-# 	df = pd.read_csv('../data/en_train_filted_class.csv')
+# 	data_process.add_class_info('../data/en_test_2.csv', "../data/en_test_class.csv")
+# 	df = pd.read_csv('../data/en_test_class.csv')
 # 	
 # 	
 # # 	run_evalute_and_split()
@@ -3053,19 +3072,61 @@ if __name__ == "__main__":
 # 	
 # 	df = pd.read_csv('../data/en_train_filted_class.csv')
 # 	data_process.gen_super_long_items(df, cfg.max_input_len - 2, '../data/en_train_long_tokens.csv')
-# 	run_normalize(False, 0, False, cfg.data_args_test)
+	
 # 	experiment_simple_gru(nb_epoch=100, input_num=10000, cls_id=0, pre_train_model_file=None)
 # 	experiment_teaching0()
 # 	evalute_acc('../data/test_ret.csv', '../data/test_ret_err.csv')
 # 	export_feature_data()
 # 	run_evalute()
 # 	experiment_simple_lstm()
+# 	df = pd.read_csv('../data/en_test_2.csv')
+# 	token = df.at[13380, "before"]
+# 	print cfg.i2w(683)
+# 	print cfg.i2w(1495)
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(2984)
+# 	print cfg.i2w(256)
+# 	print cfg.i2w(530)
+# 	print cfg.i2w(1755)
+# 	print cfg.i2w(2401)
+# 	print cfg.i2w(1883)
+# 	print cfg.i2w(530)
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(1464)
+# 	print cfg.i2w(1952)
+	
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(256)
+# 	print cfg.i2w(1136)
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(1056)
+# 	print cfg.i2w(256)
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(1464)
+# 	print cfg.i2w(256)
+# 	print cfg.i2w(3903)
+# 	print cfg.i2w(1755)
+# 	print cfg.i2w(2401)
+# 	print cfg.i2w(1883)
+# 	print cfg.i2w(3903)
+# 	print cfg.i2w(1307)
+# 	print cfg.i2w(1464)
+# 	print cfg.i2w(1952)
+	
+	
+# 	print cfg.i2w(406)
+# 	print cfg.i2w(2044)
+# 	print cfg.i2w(2044)
+# 	print cfg.i2w(1883)
 
+# 	out = data_process.recover_y_info([1, 1307, 256, 1136, 1307, 1056, 1307, 1464, 256, 3903, 1755, 2401, 1883, 3903, 1307, 1464, 1952, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
+# 	print out 
+	run_normalize(False, 0, False, cfg.data_args_test)
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
-						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
+# 						   file_head="tf_teach_att_bl4_bl1_c", pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
