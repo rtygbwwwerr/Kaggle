@@ -100,11 +100,14 @@ class ScheduledEmbeddingTrainingHelper_p(TrainingHelper):
 			    sample_shape=self.batch_size, seed=self._scheduling_seed)
 			
 # 			self.logs = tf.Print(select_sample, [select_sample])
-			sample_id_sampler = categorical.Categorical(logits=outputs)
+# 			sample_id_sampler = categorical.Categorical(logits=outputs)
+			sample_ids = math_ops.cast(math_ops.argmax(outputs, axis=-1), dtypes.int32)
+# 			select_sample = tf.ones(shape=(self.batch_size,), dtype=dtypes.bool, name="test")
 			return array_ops.where(
 			    select_sample,
-			    sample_id_sampler.sample(seed=self._seed),
+			    sample_ids,
 			    gen_array_ops.fill([self.batch_size], -1))
+# 			return sample_ids
 	
 	def next_inputs(self, time, outputs, state, sample_ids, name=None):
 		with ops.name_scope(name, "ScheduledEmbeddingTrainingHelperNextInputs",
@@ -1601,29 +1604,22 @@ class Seq2SeqModel:
 			#using teaching force without schedule			
 			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
 # 
-			training_helper = TrainingHelper(
-				embed_decoder_inputs,
-				decoder_lengths + 1
-			)
+# 			training_helper = TrainingHelper(
+# 				embed_decoder_inputs,
+# 				decoder_lengths + 1
+# 			)
 
 			
-			sampling_probability = 1.0 - tf.train.exponential_decay(
-				1.0,
-				self.train_step,
-				10000,
-				0.1,
-				staircase=True
-			)
 			
 # 			def embedding_lookup(ids):
 # 				tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
 
-# 			training_helper = ScheduledEmbeddingTrainingHelper_p(
-# 				embed_decoder_inputs,
-# 				decoder_lengths + 1,
-# 				word_embedding,
-# 				sampling_probability,
-# 			)
+			training_helper = ScheduledEmbeddingTrainingHelper_p(
+				embed_decoder_inputs,
+				decoder_lengths + 1,
+				word_embedding,
+				self.sampling_probability,
+			)
 			
 			decoder = BasicDecoder(
 				decoder_cell,
@@ -1667,7 +1663,10 @@ class Seq2SeqModel:
 
 		decoder_results = {
 			'decoder_outputs': decoder_outputs[0],
-			'decoder_result_ids': decoder_outputs[1],
+			#notice: if we use decoder with schedule sampling, many invalid flg "-1" would be set
+			# into the output_ids vectors, thus, we have to restore the real output_ids through argmax operation 
+# 			'decoder_result_ids': decoder_outputs[1],
+			'decoder_result_ids': math_ops.cast(math_ops.argmax(decoder_outputs[0], axis=-1), dtypes.int32),
 			'decoder_state': decoder_state,
 			'decoder_sequence_lengths': decoder_sequence_lengths,
 			'beam_decoder_result_ids': beam_decoder_outputs.predicted_ids,
@@ -1679,8 +1678,24 @@ class Seq2SeqModel:
 #  		self.log = [self.embed_decoder_inputs]
 # 		self.log = tf.Print(training_helper.next_inputs, [training_helper.next_inputs],"next_inputs:",summarize=20,first_n=7)
 		
-		return decoder_results, sampling_probability
-			
+		return decoder_results
+	
+	def _build_sampling_schedule(self, global_step, decay_steps, learning_rate=0.00001, offest=10.0, staircase=False):
+		with tf.variable_scope('sampling_schedule'):
+			learning_rate = ops.convert_to_tensor(learning_rate, name="learning_rate")
+			dtype = learning_rate.dtype
+			global_step = math_ops.cast(global_step, dtype)
+			decay_steps = math_ops.cast(decay_steps, dtype)
+
+			p = global_step / decay_steps
+			if staircase:
+				p = math_ops.floor(p)
+			with tf.variable_scope('sigmoid_sampling'):
+				sigmoid_op = 1.0 / (1.0 + math_ops.exp(offest + (-learning_rate * p)))
+				sigmoid_op = tf.cond(sigmoid_op > tf.constant(0.00015,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(0.0, dtypes.float32))
+				sigmoid_op = tf.cond(sigmoid_op <= tf.constant(0.99999,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(1.0, dtypes.float32))
+
+		return sigmoid_op
 	def _build_inputs(self, input_batch):
 		
 # 		self._batch_size = tf.placeholder(shape=(), dtype=tf.int32, name='batch_size')
@@ -1737,11 +1752,11 @@ class Seq2SeqModel:
 		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate = self._build_inputs(input_batch)
 		self.encoder_inputs = encoder_inputs
 		self._keep_output_rate = keep_output_rate
-
+		self.sampling_probability = self._build_sampling_schedule(self.train_step, 12000)
 		encoder_outputs, encoder_state = self._build_encoder(encoder_inputs, encoder_lengths)
-		decoder_result, sampling_probability = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
+		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
 											 decoder_inputs, decoder_lengths)
-		self.sampling_probability = sampling_probability
+
 		self.decoder_outputs = decoder_result['decoder_outputs']
 		self.decoder_result_ids = tf.identity(decoder_result['decoder_result_ids'], name='decoder/decoder_result_ids')
 		self.beam_search_result_ids = tf.identity(decoder_result['beam_decoder_result_ids'], name='decoder/beam_decoder_result_ids')

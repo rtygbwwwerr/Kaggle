@@ -801,7 +801,7 @@ def train_tf_tailored_teaching_attention(
 				avg_acc_seq = epoch_acc_seq / (step + 1)
 
 				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
-																			 epoch=epoch,
+																			 epoch=epoch + 1,
 																			 total_epoch=max_epoch,
 																			 cur_step=step+1,
 																			 all_step=step_nums,
