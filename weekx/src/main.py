@@ -790,7 +790,7 @@ def train_tf_tailored_teaching_attention(
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
 			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, sampling_prob, summaries= \
 			    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.sampling_probability, model.summary_op], feed_dict)
-
+			    
 			if (step + 1) % 1 == 0:
 				
 				epoch_loss += loss_value
@@ -799,7 +799,7 @@ def train_tf_tailored_teaching_attention(
 				avg_loss = epoch_loss / (step + 1)
 				avg_acc = epoch_acc / (step + 1)
 				avg_acc_seq = epoch_acc_seq / (step + 1)
-				
+
 				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
 																			 epoch=epoch,
 																			 total_epoch=max_epoch,
@@ -2153,7 +2153,7 @@ def experiment_attention1(input_num=0, cls_id=1, pre_train_model_file=None):
 
 	
 		
-def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", pre_train_model_prefix=None):
+def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0, file_head="tf_teach_att_bl2_bl1_c", is_debug=False, pre_train_model_prefix=None):
 # 	data = np.load("../data/train_cls{}.npz".format(cls_id))
 # 	x_t_c = data['x_t_c']
 # 	y_t = data['y_t']
@@ -2169,6 +2169,8 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 
 	with tf.Session() as sess:
 		# Create model or load pre-trained model.
+		if is_debug:
+			sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 		model = None
 		if pre_train_model_prefix is None:
 			model = model_maker.make_tf_tailored_seq2seq(
@@ -3137,7 +3139,7 @@ if __name__ == "__main__":
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
-						   file_head="tf_teach_sche_att_bl4_bl1_c", pre_train_model_prefix=None)
+						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()

@@ -22,7 +22,127 @@ from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, 
 									   TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
 									   BahdanauAttention, LuongAttention
 from nbformat.v4.tests.nbexamples import cells
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import tensor_array_ops
+from tensorflow.python.ops.distributions import bernoulli
+from tensorflow.python.ops.distributions import categorical
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import embedding_ops
+from tensorflow.python.ops import gen_array_ops
+from tensorflow.python.framework import dtypes
+from tensorflow.python.ops import math_ops
 
+class ScheduledEmbeddingTrainingHelper_p(TrainingHelper):
+	"""A training helper that adds scheduled sampling.
+	
+	Returns -1s for sample_ids where no sampling took place; valid sample id
+	values elsewhere.
+	"""
+
+	def __init__(self, inputs, sequence_length, embedding, sampling_probability,
+               time_major=False, seed=None, scheduling_seed=None, name=None):
+		"""Initializer.
+		
+		Args:
+		  inputs: A (structure of) input tensors.
+		  sequence_length: An int32 vector tensor.
+		  embedding: A callable that takes a vector tensor of `ids` (argmax ids),
+		    or the `params` argument for `embedding_lookup`.
+		  sampling_probability: A 0D `float32` tensor: the probability of sampling
+		    categorically from the output ids instead of reading directly from the
+		    inputs.
+		  time_major: Python bool.  Whether the tensors in `inputs` are time major.
+		    If `False` (default), they are assumed to be batch major.
+		  seed: The sampling seed.
+		  scheduling_seed: The schedule decision rule sampling seed.
+		  name: Name scope for any created operations.
+		
+		Raises:
+		  ValueError: if `sampling_probability` is not a scalar or vector.
+		"""
+# 		self.select_sample_val = -1
+# 		self.next_inputs_val = -1
+# 		self.base_next_inputs_val = -1
+		with ops.name_scope(name, "ScheduledEmbeddingSamplingWrapper",
+		                    [embedding, sampling_probability]):
+			if callable(embedding):
+				self._embedding_fn = embedding
+			else:
+				self._embedding_fn = (
+			      lambda ids: embedding_ops.embedding_lookup(embedding, ids))
+			self._sampling_probability = ops.convert_to_tensor(
+			    sampling_probability, name="sampling_probability")
+			if self._sampling_probability.get_shape().ndims not in (0, 1):
+				raise ValueError(
+				    "sampling_probability must be either a scalar or a vector. "
+				    "saw shape: %s" % (self._sampling_probability.get_shape()))
+
+			
+			self._seed = seed
+			self._scheduling_seed = scheduling_seed
+			super(ScheduledEmbeddingTrainingHelper_p, self).__init__(
+			    inputs=inputs,
+			    sequence_length=sequence_length,
+			    time_major=time_major,
+			    name=name)
+	
+	def initialize(self, name=None):
+		return super(ScheduledEmbeddingTrainingHelper_p, self).initialize(name=name)
+	
+	def sample(self, time, outputs, state, name=None):
+		with ops.name_scope(name, "ScheduledEmbeddingTrainingHelperSample",
+		                    [time, outputs, state]):
+			# Return -1s where we did not sample, and sample_ids elsewhere
+			select_sampler = bernoulli.Bernoulli(
+			    probs=self._sampling_probability, dtype=dtypes.bool)
+			select_sample = select_sampler.sample(
+			    sample_shape=self.batch_size, seed=self._scheduling_seed)
+			
+# 			self.logs = tf.Print(select_sample, [select_sample])
+			sample_id_sampler = categorical.Categorical(logits=outputs)
+			return array_ops.where(
+			    select_sample,
+			    sample_id_sampler.sample(seed=self._seed),
+			    gen_array_ops.fill([self.batch_size], -1))
+	
+	def next_inputs(self, time, outputs, state, sample_ids, name=None):
+		with ops.name_scope(name, "ScheduledEmbeddingTrainingHelperNextInputs",
+		                    [time, outputs, state, sample_ids]):
+			(finished, base_next_inputs, state) = (
+			    super(ScheduledEmbeddingTrainingHelper_p, self).next_inputs(
+			        time=time,
+			        outputs=outputs,
+			        state=state,
+			        sample_ids=sample_ids,
+			        name=name))
+			
+			def maybe_sample():
+				"""Perform scheduled sampling."""
+				where_sampling = math_ops.cast(
+				    array_ops.where(sample_ids > -1), dtypes.int32)
+				where_not_sampling = math_ops.cast(
+				    array_ops.where(sample_ids <= -1), dtypes.int32)
+				sample_ids_sampling = array_ops.gather_nd(sample_ids, where_sampling)
+				
+				
+				inputs_not_sampling = array_ops.gather_nd(
+				    base_next_inputs, where_not_sampling)
+				sampled_next_inputs = self._embedding_fn(sample_ids_sampling)
+				base_shape = array_ops.shape(base_next_inputs)
+				return (array_ops.scatter_nd(indices=where_sampling,
+				                             updates=sampled_next_inputs,
+				                             shape=base_shape)
+				        + array_ops.scatter_nd(indices=where_not_sampling,
+				                               updates=inputs_not_sampling,
+				                               shape=base_shape))
+			
+			all_finished = math_ops.reduce_all(finished)
+			next_inputs = control_flow_ops.cond(
+			    all_finished, lambda: base_next_inputs, maybe_sample)
+# 			self.next_inputs_val = next_inputs
+# 			self.base_next_inputs_val = base_next_inputs
+			return (finished, next_inputs, state)
 									   
 class CopyNetTrainingHelper(seq2seq.TrainingHelper):
 	"""A helper for use during training.  Only reads inputs.
@@ -1069,7 +1189,7 @@ def make_tf_tailored_seq2seq(
 				n_decoder_layers = 1,
 				attention_type = 'Bahdanau',
 				attention_num_units=100,
-				init_learning_rate=0.3,
+				init_learning_rate=0.6,
 				minimum_learning_rate=1e-5,
 				decay_steps=3e4,
 				decay_factor=0.6,
@@ -1481,10 +1601,10 @@ class Seq2SeqModel:
 			#using teaching force without schedule			
 			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
 # 
-# 			training_helper = TrainingHelper(
-# 				embed_decoder_inputs,
-# 				decoder_lengths + 1
-# 			)
+			training_helper = TrainingHelper(
+				embed_decoder_inputs,
+				decoder_lengths + 1
+			)
 
 			
 			sampling_probability = 1.0 - tf.train.exponential_decay(
@@ -1497,14 +1617,14 @@ class Seq2SeqModel:
 			
 # 			def embedding_lookup(ids):
 # 				tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
-			
-			training_helper = ScheduledEmbeddingTrainingHelper(
-				embed_decoder_inputs,
-				decoder_lengths + 1,
-				word_embedding,
-				sampling_probability,
-			)
 
+# 			training_helper = ScheduledEmbeddingTrainingHelper_p(
+# 				embed_decoder_inputs,
+# 				decoder_lengths + 1,
+# 				word_embedding,
+# 				sampling_probability,
+# 			)
+			
 			decoder = BasicDecoder(
 				decoder_cell,
 				training_helper,
@@ -1521,6 +1641,12 @@ class Seq2SeqModel:
 
 			tf.get_variable_scope().reuse_variables()
 
+# 			self.embed_decoder_inputs = embed_decoder_inputs
+# 			self.base_next_input = decoder._helper.base_next_input_val
+# 			self.select_sample = decoder._helper.select_sample_val
+# 			self.next_inputs = decoder._helper.next_inputs_val
+
+			
 			start_tokens = tf.ones([batch_size], dtype=tf.int32) * self._START
 			beam_decoder = BeamSearchDecoder(
 				beam_decoder_cell,
@@ -1549,6 +1675,10 @@ class Seq2SeqModel:
 			'beam_decoder_state': beam_decoder_state,
 			'beam_decoder_sequence_outputs': beam_decoder_sequence_lengths
 		}
+		
+#  		self.log = [self.embed_decoder_inputs]
+# 		self.log = tf.Print(training_helper.next_inputs, [training_helper.next_inputs],"next_inputs:",summarize=20,first_n=7)
+		
 		return decoder_results, sampling_probability
 			
 	def _build_inputs(self, input_batch):
