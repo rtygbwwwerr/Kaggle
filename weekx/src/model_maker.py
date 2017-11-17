@@ -1315,6 +1315,8 @@ class Seq2SeqModel:
 			self.lr = lr
 # 			opt = tf.train.GradientDescentOptimizer(self._lr)
 			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
+# 			opt = tf.train.RMSPropOptimizer(learning_rate=self.lr)
+# 			opt = tf.train.AdadeltaOptimizer(learning_rate=self.lr)
 # 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
 			self._opt = opt
 # 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
@@ -1810,7 +1812,7 @@ class Seq2SeqModel:
 		self._inputs['init_lr_rate'] = sess.graph.get_tensor_by_name("init_lr_rate:0")
 		self._inputs['decay_step'] = sess.graph.get_tensor_by_name("decay_step:0")
 		self._inputs['decay_factor'] = sess.graph.get_tensor_by_name("decay_factor:0")
-		self.sampling_probability = sess.graph.get_operation_by_name("sampling_schedule/sampling_op")
+		self.sampling_probability = sess.graph.get_tensor_by_name("sampling_schedule/sampling_op:0")
 		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
 		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
 		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
