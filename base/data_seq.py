@@ -154,7 +154,7 @@ class SeqData:
 				_wrong += 1.0
 			if print_detil:
 				print info
-			infos.append(info + '\n')
+			infos.append(info)
 		return _right, _wrong, infos
 
 	def build(self):
