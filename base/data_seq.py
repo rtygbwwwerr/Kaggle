@@ -132,7 +132,7 @@ class SeqData:
 			print('{} -> {} (Real: {})'.format(input_sequence, infer_output_sequence, output_sequence))
 	
 	
-	def eval_result(self, input_ids, output_ids, infer_output_ids, step, batch_size):
+	def eval_result(self, input_ids, output_ids, infer_output_ids, step, batch_size, print_detil=True):
 		_right, _wrong = 0.0, 0.0
 		
 		infos = []
@@ -152,7 +152,8 @@ class SeqData:
 					_wrong += 1.0
 			except ValueError:  # output_sequence == ''
 				_wrong += 1.0
-			print info
+			if print_detil:
+				print info
 			infos.append(info + '\n')
 		return _right, _wrong, infos
 
