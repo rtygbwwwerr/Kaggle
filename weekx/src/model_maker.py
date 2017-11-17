@@ -1192,7 +1192,7 @@ def make_tf_tailored_seq2seq(
 				n_decoder_layers = 1,
 				attention_type = 'Bahdanau',
 				attention_num_units=100,
-				init_learning_rate=0.6,
+				init_learning_rate=0.35,
 				minimum_learning_rate=1e-5,
 				decay_steps=3e4,
 				decay_factor=0.6,
@@ -1288,9 +1288,9 @@ class Seq2SeqModel:
 		self._attention_num_units = attention_num_units
 		self._attention_depth = attention_depth
 		self._max_decode_iter_size = max_decode_iter_size
-		self._init_learning_rate = init_learning_rate
-		self._decay_steps = decay_steps
-		self._decay_factor = decay_factor
+# 		self._init_learning_rate = init_learning_rate
+# 		self._decay_steps = decay_steps
+# 		self._decay_factor = decay_factor
 		self._minimum_learning_rate = minimum_learning_rate
 		self._inputs = {}
 		if not is_restored:
@@ -1336,6 +1336,7 @@ class Seq2SeqModel:
 		return train_op
 	
 	def _build_summary(self):
+		tf.summary.scalar('sampling_rate', self.sampling_probability)
 		tf.summary.scalar('learning_rate', self.lr)
 		tf.summary.scalar('loss', self.loss)
 		tf.summary.scalar('grads', self._grads)
@@ -1726,6 +1727,21 @@ class Seq2SeqModel:
 				dtype=tf.float32,
 				name='keep_output_rate'
 			)
+			
+			self._inputs['init_lr_rate'] = tf.placeholder(
+				dtype=tf.float32,
+				name='init_lr_rate'
+			)
+			
+			self._inputs['decay_step'] = tf.placeholder(
+				dtype=tf.int32,
+				name='decay_step'
+			)
+			
+			self._inputs['decay_factor'] = tf.placeholder(
+				dtype=tf.float32,
+				name='decay_factor'
+			)
 
 		else:
 			encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = input_batch
@@ -1742,17 +1758,24 @@ class Seq2SeqModel:
 			}
 
 		return self._inputs['encoder_inputs'], self._inputs['encoder_lengths'], \
-			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths'], self._inputs['keep_output_rate']
+			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths'], \
+			   self._inputs['keep_output_rate'], self._inputs['init_lr_rate'], \
+			   self._inputs['decay_step'], self._inputs['decay_factor']
 
 	def _build_graph(self, input_batch):
 		with tf.variable_scope('train'):
 			self.train_step = tf.Variable(0, name='global_step', trainable=False)
 		
 		
-		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate = self._build_inputs(input_batch)
+		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate, init_lr_rate, decay_step, decay_factor = self._build_inputs(input_batch)
 		self.encoder_inputs = encoder_inputs
 		self._keep_output_rate = keep_output_rate
-		self.sampling_probability = self._build_sampling_schedule(self.train_step, 12000)
+		self._init_learning_rate = init_lr_rate
+		self._decay_steps = decay_step
+		self._decay_factor = decay_factor
+		
+		sampling_probability = self._build_sampling_schedule(self.train_step, 12000)
+		self.sampling_probability = tf.identity(sampling_probability, name='sampling_schedule/sampling_op')
 		encoder_outputs, encoder_state = self._build_encoder(encoder_inputs, encoder_lengths)
 		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
 											 decoder_inputs, decoder_lengths)
@@ -1784,6 +1807,10 @@ class Seq2SeqModel:
 		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
 		self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
 		self._inputs['keep_output_rate'] = sess.graph.get_tensor_by_name("keep_output_rate:0")
+		self._inputs['init_lr_rate'] = sess.graph.get_tensor_by_name("init_lr_rate:0")
+		self._inputs['decay_step'] = sess.graph.get_tensor_by_name("decay_step:0")
+		self._inputs['decay_factor'] = sess.graph.get_tensor_by_name("decay_factor:0")
+		self.sampling_probability = sess.graph.get_operation_by_name("sampling_schedule/sampling_op")
 		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
 		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
 		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")

@@ -760,10 +760,10 @@ def train_tf_tailored_teaching_attention(
 	dataset.build()
 	
 	data_process.dump(cfg.vocab_i2word, "../data/i2w.dic")
-	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
-	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
-	np.savetxt("../data/X_valid.txt", X_valid.astype(np.int32), '%d')
-	np.savetxt("../data/Y_valid.txt", Y_valid.astype(np.int32), '%d')
+# 	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
+# 	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
+# 	np.savetxt("../data/X_valid.txt", X_valid.astype(np.int32), '%d')
+# 	np.savetxt("../data/Y_valid.txt", Y_valid.astype(np.int32), '%d')
 # 	num_train_examples = X_train.shape[0]
 	max_epoch = nb_epoch
 	step_nums = int(math.ceil(X_train.shape[0] / float(batch_size)))
@@ -786,11 +786,14 @@ def train_tf_tailored_teaching_attention(
 		epoch_acc_seq = 0.
 		for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
 			data_dict['keep_output_rate'] = cfg.ed_keep_rate
+			data_dict['init_lr_rate'] = cfg.init_lr_rate
+			data_dict['decay_step'] = cfg.decay_step
+			data_dict['decay_factor'] = cfg.decay_factor
 			feed_dict = model.make_feed_dict(data_dict)
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-			_, decoder_result_ids, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, sampling_prob, summaries= \
-			    sess.run([model.train_op, model.decoder_result_ids, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.sampling_probability, model.summary_op], feed_dict)
-			    
+			_, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, sampling_prob, summaries= \
+			    sess.run([model.train_op, model.accuracy, model.accuracy_seqs, model.loss, model._grads, model.lr, model.train_step, model.sampling_probability, model.summary_op], feed_dict)
+
 			if (step + 1) % 1 == 0:
 				
 				epoch_loss += loss_value
@@ -825,6 +828,9 @@ def train_tf_tailored_teaching_attention(
 		val_ret = []
 		for step, data_dict in enumerate(dataset.val_datas(batch_size, False)):
 			data_dict['keep_output_rate'] = cfg.de_keep_rate
+			data_dict['init_lr_rate'] = cfg.init_lr_rate
+			data_dict['decay_step'] = cfg.decay_step
+			data_dict['decay_factor'] = cfg.decay_factor
 			feed_dict = model.make_feed_dict(data_dict)
 			beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
 			beam_result_ids = beam_result_ids[:, :, 0]
@@ -2158,12 +2164,13 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 	x_t_c = data['x_t_c']
 # 	y_t = data['y_t']
 
-	x_t_c, y_t = data_process.get_training_data_from_files("../data/train/")
+	x_train, y_train = data_process.get_training_data_from_files("../data/train/")
+	x_t_c_v, y_t_v = data_process.get_training_data_from_files("../data/valid/")
 
 	if input_num > 0:
-		x_t_c = x_t_c[:input_num]
-		y_t = y_t[:input_num]
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=test_size, random_state=0)
+		x_train = x_train[:input_num]
+		y_train = y_train[:input_num]
+	_, x_valid, _, y_valid = train_test_split(x_t_c_v, y_t_v, test_size=test_size, random_state=0)
 
 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 
@@ -2583,6 +2590,9 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 			data_dict['decoder_inputs'] = Y_empty
 			data_dict['decoder_lengths'] = Y_empty_lens
 			data_dict['keep_output_rate'] = cfg.de_keep_rate
+			data_dict['init_lr_rate'] = cfg.init_lr_rate
+			data_dict['decay_step'] = cfg.decay_step
+			data_dict['decay_factor'] = cfg.decay_factor
 			feed_dict_de = model.make_feed_dict(data_dict)
 			# Run prediction on batch data.
 			beam_result_ids = sess.run(
@@ -3045,8 +3055,12 @@ def eval_trained_model(batch_size=256):
 
 if __name__ == "__main__":
 # 	data_process.extract_val_ret_err()
-# 	data_process.filter_reduplicated_data('../data/ext/output-00003-of-00100')
-#  	data_process.gen_train_feature_from_files()
+
+# 	data_process.gen_train_feature_from_files('../data/ext2/')
+# 	data_process.gen_filter_duplicated_data_from_files('../data/ext2/', is_filter_by_xy=True)
+# 	data_process.down_sampling_from_files('../data/ext2/')
+# 	df = pd.read_csv('../data/ext/output-00001-of-00100_train_cls0_filtered.csv')
+# 	data_process.filter_reduplicated_xy_data(df)
 # 	data_process.gen_constant_dict()
 # 	data_process.gen_alpha_table()
 # 	data_process.gen_out_vocab()
@@ -3139,7 +3153,9 @@ if __name__ == "__main__":
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
-						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, pre_train_model_prefix=None)
+						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
+# 						   pre_train_model_prefix="../model/tf/tf_teach_sche_att_bl4_bl1_c0.00-0.17655-0.95019-0.87283-77.58200.ckpt-9928",
+						   pre_train_model_prefix=None)
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
