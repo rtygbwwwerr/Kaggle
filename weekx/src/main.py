@@ -3071,7 +3071,8 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
-	data_process.display_error_info("../data/mini_valid_ret_500.txt_err.txt")
+	data_process.gen_alpha_table_from_files("../data/ext")
+# 	data_process.display_error_info("../data/mini_valid_ret_500.txt_err.txt")
 # 	data_process.extract_val_ret_err()
 
 # 	data_process.gen_train_feature_from_files('../data/ext2/')
