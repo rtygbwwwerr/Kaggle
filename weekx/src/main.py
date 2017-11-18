@@ -2224,9 +2224,10 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 			initial_epoch = 1
 			sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 		else:
-			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
-			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
-			initial_epoch = int(m.group(1)) + 1
+# 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
+# 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
+# 			initial_epoch = int(m.group(1)) + 1
+			initial_epoch = 5
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 
 		log_dir = '../logs/tf/'
@@ -3183,7 +3184,7 @@ if __name__ == "__main__":
 
 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-						   pre_train_model_prefix="../model/tf/tf_teach_sche_att_bl4_bl1_c0.04-0.01013-0.99652-0.98610-91.50000.ckpt-59568",
+						   pre_train_model_prefix="../checkpoints/mini/mini.5_1500-0.98084-0.98047.ckpt-61068",
 # 						   pre_train_model_prefix=None,
 						   )
 
