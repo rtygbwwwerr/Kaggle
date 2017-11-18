@@ -784,7 +784,7 @@ def train_tf_tailored_teaching_attention(
 		epoch_loss = 0.
 		epoch_acc = 0.
 		epoch_acc_seq = 0.
-		for step, data_dict in enumerate(dataset.train_datas(batch_size, False)):
+		for step, data_dict in enumerate(dataset.train_datas(batch_size, True)):
 			data_dict['keep_output_rate'] = cfg.ed_keep_rate
 			data_dict['init_lr_rate'] = cfg.init_lr_rate
 			data_dict['decay_step'] = cfg.decay_step
@@ -804,7 +804,7 @@ def train_tf_tailored_teaching_attention(
 				avg_acc_seq = epoch_acc_seq / print_step
 
 				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
-																			 epoch=epoch + 1,
+																			 epoch=epoch,
 																			 total_epoch=max_epoch,
 																			 cur_step=print_step,
 																			 all_step=step_nums,
@@ -822,10 +822,20 @@ def train_tf_tailored_teaching_attention(
 
 				train_summary_writer.add_summary(summaries, g_step)
 				
-			if (print_step) % 500 == 0:
-				val_ret, right, wrong = valid_data(sess, model, dataset, batch_size, batch_num=5, print_detil=False)
-				print "Mini-test Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
+			if (print_step) % 300 == 0:
+				val_ret, right, wrong = valid_data(sess, model, dataset, batch_size, batch_num=10, print_detil=False)
+				mini_acc = right/float(right+wrong)
+				print "Mini-test Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*mini_acc)
 				save_valid_ret(print_step, "mini_valid_ret", val_ret)
+				path = "../checkpoints/mini/{prefix}.{epoch_id}_{id:02d}-{seq_acc:.5f}-{val_acc:.5f}.ckpt".format(
+																								prefix="mini",
+																							    epoch_id=epoch,
+																							    id=print_step,
+																							    seq_acc=avg_acc_seq,
+																							    val_acc=mini_acc,
+																							    )
+				saved_path = saver.save(sess, path, global_step=model.train_step)
+				print "saved check file:" + saved_path
 				
 		epoch_loss = epoch_loss / float(step_nums)
 		epoch_acc = epoch_acc / float(step_nums)
@@ -2211,12 +2221,12 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 					START = cfg.start_flg_index,
 					EOS = cfg.end_flg_index,
 					)
-			initial_epoch = 0
+			initial_epoch = 1
 			sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 		else:
 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
-			initial_epoch = int(m.group(1))
+			initial_epoch = int(m.group(1)) + 1
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 
 		log_dir = '../logs/tf/'
@@ -3071,7 +3081,7 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
-	data_process.gen_alpha_table_from_files("../data/ext")
+# 	data_process.gen_alpha_table_from_files("../data/ext")
 # 	data_process.display_error_info("../data/mini_valid_ret_500.txt_err.txt")
 # 	data_process.extract_val_ret_err()
 
@@ -3171,11 +3181,11 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
-# 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-# 						   pre_train_model_prefix="../model/tf/tf_teach_sche_att_bl4_bl1_c0.00-0.18964-0.94664-0.86759-77.58300.ckpt-9928",
-# # 						   pre_train_model_prefix=None,
-# 						   )
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
+						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
+						   pre_train_model_prefix="../model/tf/tf_teach_sche_att_bl4_bl1_c0.04-0.01013-0.99652-0.98610-91.50000.ckpt-59568",
+# 						   pre_train_model_prefix=None,
+						   )
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
