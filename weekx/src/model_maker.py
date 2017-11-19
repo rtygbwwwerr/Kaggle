@@ -32,6 +32,8 @@ from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import math_ops
+# from tensorflow.contrib.graph_editor import ControlOutputs, graph_replace
+import tensorflow.contrib.graph_editor as ge
 
 class ScheduledEmbeddingTrainingHelper_p(TrainingHelper):
 	"""A training helper that adds scheduled sampling.
@@ -1314,9 +1316,9 @@ class Seq2SeqModel:
 			)
 			self.lr = lr
 # 			opt = tf.train.GradientDescentOptimizer(self._lr)
-			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
-# 			opt = tf.train.RMSPropOptimizer(learning_rate=self.lr)
-# 			opt = tf.train.AdadeltaOptimizer(learning_rate=self.lr)
+# 			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
+# 			opt = tf.train.RMSPropOptimizer(learning_rate=0.05)
+			opt = tf.train.AdadeltaOptimizer(learning_rate=self.lr)
 # 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
 			self._opt = opt
 # 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
@@ -1683,7 +1685,7 @@ class Seq2SeqModel:
 		
 		return decoder_results
 	
-	def _build_sampling_schedule(self, global_step, decay_steps, learning_rate=0.00001, offest=10.0, staircase=False):
+	def _build_sampling_schedule(self, global_step, decay_steps, learning_rate=0.0001, offest=13.0, staircase=True):
 		with tf.variable_scope('sampling_schedule'):
 			learning_rate = ops.convert_to_tensor(learning_rate, name="learning_rate")
 			dtype = learning_rate.dtype
@@ -1695,10 +1697,13 @@ class Seq2SeqModel:
 				p = math_ops.floor(p)
 			with tf.variable_scope('sigmoid_sampling'):
 				sigmoid_op = 1.0 / (1.0 + math_ops.exp(offest + (-learning_rate * p)))
+				sigmoid_op = tf.add(sigmoid_op, self._init_sampling_prob)
 				sigmoid_op = tf.cond(sigmoid_op > tf.constant(0.00015,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(0.0, dtypes.float32))
-				sigmoid_op = tf.cond(sigmoid_op <= tf.constant(0.99999,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(1.0, dtypes.float32))
-
-		return sigmoid_op
+				sigmoid_op = tf.cond(sigmoid_op <= tf.constant(0.99,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(1.0, dtypes.float32))
+				sp_prob = math_ops.cast(sigmoid_op, dtype)
+				sp_prob.set_shape(())
+# 				print sp_prob.get_shape()
+		return sp_prob
 	def _build_inputs(self, input_batch):
 		
 # 		self._batch_size = tf.placeholder(shape=(), dtype=tf.int32, name='batch_size')
@@ -1744,6 +1749,16 @@ class Seq2SeqModel:
 				dtype=tf.float32,
 				name='decay_factor'
 			)
+			
+			self._inputs['init_sampling_prob'] = tf.placeholder(
+				dtype=tf.float32,
+				name='init_sampling_prob'
+			)
+			
+			self._inputs['sp_decay_step'] = tf.placeholder(
+				dtype=tf.int32,
+				name='sp_decay_step'
+			)
 
 		else:
 			encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = input_batch
@@ -1762,21 +1777,25 @@ class Seq2SeqModel:
 		return self._inputs['encoder_inputs'], self._inputs['encoder_lengths'], \
 			   self._inputs['decoder_inputs'], self._inputs['decoder_lengths'], \
 			   self._inputs['keep_output_rate'], self._inputs['init_lr_rate'], \
-			   self._inputs['decay_step'], self._inputs['decay_factor']
+			   self._inputs['decay_step'], self._inputs['decay_factor'], \
+			   self._inputs['init_sampling_prob'], self._inputs['sp_decay_step']
 
 	def _build_graph(self, input_batch):
 		with tf.variable_scope('train'):
 			self.train_step = tf.Variable(0, name='global_step', trainable=False)
 		
 		
-		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate, init_lr_rate, decay_step, decay_factor = self._build_inputs(input_batch)
+		encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths, keep_output_rate, init_lr_rate, decay_step, decay_factor, init_sampling_prob, sp_decay_step= self._build_inputs(input_batch)
+		
 		self.encoder_inputs = encoder_inputs
 		self._keep_output_rate = keep_output_rate
 		self._init_learning_rate = init_lr_rate
 		self._decay_steps = decay_step
 		self._decay_factor = decay_factor
+		self._init_sampling_prob = init_sampling_prob
+		self._sp_decay_step = sp_decay_step
 		
-		sampling_probability = self._build_sampling_schedule(self.train_step, 12000)
+		sampling_probability = self._build_sampling_schedule(self.train_step, self._sp_decay_step, staircase=True)
 		self.sampling_probability = tf.identity(sampling_probability, name='sampling_schedule/sampling_op')
 		encoder_outputs, encoder_state = self._build_encoder(encoder_inputs, encoder_lengths)
 		decoder_result = self._build_decoder(encoder_outputs, encoder_state, encoder_lengths,
@@ -1812,17 +1831,51 @@ class Seq2SeqModel:
 		self._inputs['init_lr_rate'] = sess.graph.get_tensor_by_name("init_lr_rate:0")
 		self._inputs['decay_step'] = sess.graph.get_tensor_by_name("decay_step:0")
 		self._inputs['decay_factor'] = sess.graph.get_tensor_by_name("decay_factor:0")
+		self._inputs['init_sampling_prob'] = sess.graph.get_tensor_by_name("init_sampling_prob:0")
+		self._inputs['sp_decay_step'] = sess.graph.get_tensor_by_name("sp_decay_step:0")
+		
+		self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
 		self.sampling_probability = sess.graph.get_tensor_by_name("sampling_schedule/sampling_op:0")
-		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
+		
+# 		ge.sgv(self.sampling_probability)
+		
+# 		sampling_probability_new = self._build_sampling_schedule(self.train_step, decay_steps=100)
+# 		sgv_sp = ge.sgv(self.sampling_probability)
+# 		g_decode = sess.graph.get_operation_by_name("decoder")
+# 		
+# 		sgv_sp_new = ge.sgv(sampling_probability_new)
+# 		ge.swap_outputs(sgv_sp, sgv_sp_new)
+# 		ge.remove_control_inputs(self.sampling_probability, cops)
+# 		ge.connect(sgv_sp, g_decode, disconnect_first)
+# 		learning_rate = sess.graph.get_tensor_by_name("sampling_schedule/learning_rate:0")
+# 		learning_rate_1 = sess.graph.get_tensor_by_name("sampling_schedule/learning_rate_1:0")
+# 		offset = sess.graph.get_tensor_by_name("sampling_schedule/sigmoid_sampling/add/x:0")
+# 		tf.assign(learning_rate, 0.0001)
+# 		tf.assign(offset, 13)
+# 		ge.connect(sgv0, sgv1, disconnect_first)
+# 		ge.bypass(sgv)
+		
+
+# 		self.sampling_probability = ge.graph_replace(self.sampling_probability, 
+# 							{learning_rate:tf.constant(0.0001, dtypes.float32, name="learning_rate"), offset:tf.constant(13.0, dtypes.float32, name="x")},
+# 							reuse_dst_scope=True)
+
 		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
+		
 		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
 		self.accuracy = sess.graph.get_tensor_by_name("accuracy_target/acc:0")
 		self.accuracy_seqs = sess.graph.get_tensor_by_name("accuracy_target/seq_acc:0")
 		self.loss = sess.graph.get_tensor_by_name("seq_loss:0")
+		
+# 		self.train_op = self._build_train_step(self.loss)
+
+		
+		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
+		
 		self._grads = sess.graph.get_tensor_by_name("train_1/gradient:0")
 		self.lr = sess.graph.get_tensor_by_name("train_1/lr_clip:0")
-		self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
+		
 		self.summary_op = sess.graph.get_tensor_by_name("summary_op:0")
 		self.beam_search_scores = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose_1:0")
 		self.decoder_outputs = sess.graph.get_tensor_by_name("decoder/decoder/transpose:0")
-
+		

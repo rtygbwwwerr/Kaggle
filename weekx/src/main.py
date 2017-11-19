@@ -56,7 +56,7 @@ from __builtin__ import str
 cfg.init()
 rule_norm_obj = RuleBasedNormalizer()
 
-# import os
+import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
@@ -725,7 +725,7 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 						is_training = is_train,
 						is_restored = True,
 						)
-
+	
 	# Restore parameters in Model object with restored value.
 	model.restore_from_session(sess)
 
@@ -789,6 +789,8 @@ def train_tf_tailored_teaching_attention(
 			data_dict['init_lr_rate'] = cfg.init_lr_rate
 			data_dict['decay_step'] = cfg.decay_step
 			data_dict['decay_factor'] = cfg.decay_factor
+			data_dict['init_sampling_prob'] = cfg.init_sampling_prob
+			data_dict['sp_decay_step'] = cfg.sp_decay_step
 			feed_dict = model.make_feed_dict(data_dict)
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
 			_, accuracy, accuracy_seqs, loss_value, grads, learn_rate, g_step, sampling_prob, summaries= \
@@ -873,6 +875,8 @@ def valid_data(sess, model, dataset, batch_size, batch_num=10, print_detil=True)
 		data_dict['init_lr_rate'] = cfg.init_lr_rate
 		data_dict['decay_step'] = cfg.decay_step
 		data_dict['decay_factor'] = cfg.decay_factor
+		data_dict['init_sampling_prob'] = cfg.init_sampling_prob
+		data_dict['sp_decay_step'] = cfg.sp_decay_step
 		feed_dict = model.make_feed_dict(data_dict)
 		beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
 		beam_result_ids = beam_result_ids[:, :, 0]
@@ -2227,7 +2231,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
 # 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
 # 			initial_epoch = int(m.group(1)) + 1
-			initial_epoch = 5
+			initial_epoch = 8
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 
 		log_dir = '../logs/tf/'
@@ -3182,10 +3186,10 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=100000, cls_id=0,
+	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-						   pre_train_model_prefix="../checkpoints/mini/mini.5_1500-0.98084-0.98047.ckpt-61068",
-# 						   pre_train_model_prefix=None,
+# 						   pre_train_model_prefix="../checkpoints/mini/mini.1_600-0.13911-0.40909.ckpt-600",
+							pre_train_model_prefix=None,
 						   )
 
 # 	experiment_classify_char_and_extend()
