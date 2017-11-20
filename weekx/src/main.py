@@ -2516,7 +2516,7 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 	cls_num = 1
 	mod_classifier = None
 	if use_classifier:
-		mod_classifier = gen_model_class_2()
+		mod_classifier = gen_model_ensemble_0()
 		print "Load classify model..."
 		print mod_classifier.summary()
 		mod_classifier.load_weights(data_args['model_classify'])
