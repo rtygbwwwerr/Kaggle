@@ -58,7 +58,7 @@ cfg.init()
 rule_norm_obj = RuleBasedNormalizer()
 
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -2285,7 +2285,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
 # 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
 # 			initial_epoch = int(m.group(1)) + 1
-			initial_epoch = 9
+			initial_epoch = 11
 			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 			
@@ -2384,16 +2384,19 @@ def experiment_classify():
 	train_classify(model, "class_cnn", x_train, y_train, x_valid, y_valid, 
 				batch_size=256, nb_epoch = 200)
 
-def experiment_classify_ensemble():
-# 	y_t = data_process.load_numpy_data("../data/train_y_2class.npy")
-# 	
-# 	data = np.load("../data/train_cls0.npz")
-# 	x_t_c = data['x_t_c']
-	x_t_c, y_t = data_process.get_training_data_from_files('../data/train_ensemble/')
-# 	x_t_c, y_t = data_process.get_training_data_from_files('../data/valid_ensemble/')
+def experiment_classify_ensemble(input_num=0, test_size=10000):
+
+	x_train, y_train = data_process.get_training_data_from_files('../data/train_ensemble/')
+	x_t_c_v, y_t_v = data_process.get_training_data_from_files("../data/valid_ensemble/")
+
+	if input_num > 0:
+		x_train = x_train[:input_num]
+		y_train = y_train[:input_num]
+	_, x_valid, _, y_valid = train_test_split(x_t_c_v, y_t_v, test_size=test_size, random_state=0)
+
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 # 	y_t = np.array(np.ones((x_t_c.shape[0], 2), dtype=np.int))
 
-	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
 	model = gen_model_ensemble_0()
 	print(model.summary())
 	train_classify(model, "ensemble_cnn_c0", x_train, y_train, x_valid, y_valid, 
@@ -2503,11 +2506,13 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 	print "Max decode_teach output length is {}".format(cfg.max_output_len_decode)
 	del df_test['len']
 
-	data = np.load(data_args['feat_classify'])
-	x_t_cls = data['x_t']
+# 	data = np.load(data_args['feat_classify'])
+# 	x_t_cls = data['x_t']
 	data = np.load(data_args['feat_normalization'])
 # 	x_t = data['x_t']
+
 	x_t_c = data['x_t_c']
+	x_t_cls = data['x_t_c']
 # 	np.savetxt("../data/X_test.txt", x_t_c.astype(np.int32), '%d')
 	
 	if test_size > 0:
@@ -3156,17 +3161,21 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
-	data_process.pack_ensemble_data("../data/train/train_cls0.npz",
-								    "../data/ensemble_label.npy", 
-								    "../data/train_ensemble/train_cls0_ensemble.npz")
-	experiment_classify_ensemble()
+	
+# 	data_process.pack_ensemble_data("../data/train/train_cls0.npz",
+# 								    "../data/ensemble_label.npy", 
+# 								    "../data/train_ensemble/train_cls0_ensemble.npz")
+	
 # 	data_process.gen_alpha_table_from_files("../data/ext")
 # 	data_process.display_error_info("../data/mini_valid_ret_500.txt_err.txt")
 # 	data_process.extract_val_ret_err()
 
 # 	data_process.gen_train_feature_from_files('../data/ext2/')
 # 	data_process.gen_filter_duplicated_data_from_files('../data/ext2/', is_filter_by_xy=True)
-# 	data_process.down_sampling_from_files('../data/ext2/')
+
+# 	data_process.down_sampling_from_files('../data/ext3/')
+# 	data_process.gen_label_from_files("../data/ext3/")
+	experiment_classify_ensemble()
 # 	df = pd.read_csv('../data/ext/output-00001-of-00100_train_cls0_filtered.csv')
 # 	data_process.filter_reduplicated_xy_data(df)
 # 	data_process.gen_constant_dict()
@@ -3256,13 +3265,13 @@ if __name__ == "__main__":
 
 # 	out = data_process.recover_y_info([1, 1307, 256, 1136, 1307, 1056, 1307, 1464, 256, 3903, 1755, 2401, 1883, 3903, 1307, 1464, 1952, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
 # 	print out 
-# 	run_normalize(False, 1000, False, cfg.data_args_test)
+# 	run_normalize(False, 1000, True, cfg.data_args_test)
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
 # 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-# 						   pre_train_model_prefix="../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.08-0.02373-0.99385-0.98268-95.97000.ckpt-79424",
+# 						   pre_train_model_prefix="../checkpoints/mini/mini.11_900-0.98143-0.96875.ckpt-100180",
 # # 							pre_train_model_prefix=None,
 # 						   )
 	
