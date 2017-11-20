@@ -645,22 +645,27 @@ def load(path):
 	f.close()
 	return obj
 
-def gen_alpha_table():
-	df = pd.read_csv('../data/en_train.csv')
-	
+def gen_alpha_table_from_files(root_path):
+	paths = gen_input_paths(root_path, "00100.csv")
+	paths.append("../data/en_train.csv")
+	paths.append("../data/en_test.csv")
+	gen_alpha_table(paths, '../data/input_alpha_table_large')
+		
+def gen_alpha_table(paths, output_file='../data/input_alpha_table'):
 	#using nonlocal variable in python 2.x
 	table = [set()]
-	
+	num = len(paths)
 	def add_set(x):
 		table[0] = table[0] | set(unicode(str(x)))
+	for i, path in enumerate(paths):
+		print 'Processing index:{}/{}, file:{}'.format(i + 1, num, path)
+		df = pd.read_csv(path)
+		df['before'].apply(lambda x: add_set(x))
 	
-	df['before'].apply(lambda x: add_set(x))
-	
-	df = pd.read_csv('../data/en_test.csv')
-	df['before'].apply(lambda x: add_set(x))
+# 	df = pd.read_csv('../data/en_test.csv')
+# 	df['before'].apply(lambda x: add_set(x))
 	
 	print len(table[0])
-	
 	list_table = []
 	list_min = []
 	list_max = []
@@ -674,7 +679,7 @@ def gen_alpha_table():
 	print "char num in [0,31]:%d"%(len(list_table))
 	print "char num in [32,126]:%d"%len(list_min)
 	print "char num in [127,):%d"%len(list_max)
-	dump(table[0], '../data/input_alpha_table')
+	dump(table[0], output_file)
 
 def gen_features(df, is_normalized=False):
 	gram, discard_index_set = extract_2gram_feature(df, is_normalized)
@@ -748,21 +753,81 @@ def get_base_name(path):
 		name = name[0:name.rfind('.')]
 	return name
 
+
 def gen_train_feature_from_files(root_path = '../data/ext/'):
-	paths = gen_input_paths(root_path)
+	paths = gen_input_paths(root_path, "00100.csv")
 	
 	for path in paths:
 		name = get_base_name(path)
 		head = root_path + name
 		out_path = head + '_class.csv'
 		print 'Processing file:{0}, head:{1}'.format(path, head)
-		add_class_info(path, out_path)
+		if not os.path.exists(out_path):
+			add_class_info(path, out_path)
 		print 'Starting read info from:' + out_path
 		df = pd.read_csv(out_path)
-		x_t_c, x_t, y_t, df_out = get_features(df)
-		df_out.to_csv(head + '_train_cls0.csv', index=False)	
-		np.savez(head + "_train_cls0.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+		out_df_file = head + '_train_cls0.csv'
+		out_npz_file = head + "_train_cls0.npz"
+		if not os.path.exists(out_path) or not os.path.exists(out_npz_file):
+			x_t_c, x_t, y_t, df_out = get_features(df)
+			df_out.to_csv(out_df_file, index=False)	
+			np.savez(out_npz_file, x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+		else:
+			print "cls0 file already exists!do nothing for this file...skip"
+		
+def down_sampling_from_files(root_path):
+	#[0.093168881, 0.236129035, 0.4781071169, 0.1258843075, 0.0331648355, 0.0206633337, 0.0014361654, 
+	#0.0005622257, 0.0067212364, 0.0032343046, 5.35868059587229E-06, 0.000208211, 1.18745204312938E-05, 
+	#3.05062102180794E-05, 0.0006687386, 3.86918462789051E-06]
+	ref_col_name = "class"
+# 	sampling_distribution_dict = {'DIGIT':0.093168881, 'FRACTION':0.236129035, 
+# 	'ADDRESS':0.4781071169, 'TIME':0.1258843075, 'TELEPHONE':0.0331648355,
+# 	 'MONEY':0.0206633337, 'VERBATIM':0.0014361654, 'LETTERS':0.0005622257, 
+# 	 'ORDINAL':0.0067212364, 'MEASURE':0.0032343046, 'PLAIN':5.35868059587229E-06, 
+# 	 'CARDINAL':0.000208211, 'PUNCT':1.187452 04312938E-05, 'DATE':3.05062102180794E-05,
+# 	  'DECIMAL':0.0006687386, 'ELECTRONIC':3.86918462789051E-08}
+	sampling_distribution_dict = {'DIGIT':0.093168881, 'FRACTION':0.236129035, 
+	'ADDRESS':0.4781071169, 'TIME':0.1258843075, 'TELEPHONE':0.0331648355,
+	 'MONEY':0.0206633337, 'VERBATIM':0.0014361654, 'LETTERS':0.0005622257, 
+	 'ORDINAL':0.0067212364, 'MEASURE':0.0032343046, 'PLAIN':5.35868059587229E-06, 
+	 'CARDINAL':0.000208211, 'PUNCT':1.18745204312938E-05, 'DATE':3.05062102180794E-05,
+	  'DECIMAL':0.0006687386, 'ELECTRONIC':3.86918462789051E-08}
+	
+	paths = gen_input_paths(root_path, "_cls0_filtered.npz")
+	for path in paths:
+		print "processing file:" + path
+# 		name = os.path.basename(file)
+		index = path.find("_train_cls0_filtered.npz")
+		head = path[:index]
+		get_down_sampling_data(head, sampling_distribution_dict, ref_col_name)
 
+	
+def get_down_sampling_data(file_head, sampling_distribution_dict, ref_col_name):
+	df = pd.read_csv("{}_train_cls0_filtered.csv".format(file_head))
+	data = np.load("{}_train_cls0_filtered.npz".format(file_head))
+	index = []
+	for i in range(len(df)):
+		col = df.at[i, ref_col_name]
+		prob = sampling_distribution_dict[col] * 12.0
+		val = random.uniform(0, 1)
+		if val <= prob:
+			index.append(i)
+	
+	df_out = df.iloc[index]
+	
+# 	data = np.load("../data/train_cls0.npz".format(file_head))
+	x_t_c = data['x_t_c']
+	y_t = data['y_t']
+	x_t = data['x_t']
+	
+	x_t_c = x_t_c[index]
+	x_t = x_t[index]
+	y_t = y_t[index]
+	
+	print "original length:{}, sampling length:{}".format(len(df), len(index))
+	df_out.to_csv(file_head + '_train_cls0_sampling.csv', index=False)	
+	np.savez(file_head + "_train_cls0_sampling.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+	
 def filter_unknown_data(x_list):
 	#remember, we always use the first item as standard
 	x = x_list[0]
@@ -792,9 +857,25 @@ def filter_reduplicated_data(x):
 	x = x[index]
 	print "orignal row:{}, discard reduplicated row:{}".format(orig_len, orig_len - x.shape[0])
 	return x, index
-	
-def gen_filtered_data(file_head):
-	
+
+def gen_filter_duplicated_data_from_files(root_path, is_filter_by_xy = False):
+	paths = gen_input_paths(root_path, "_cls0.npz")
+	files = [f for f in paths if not f.endswith("_cls0_filtered.npz")]
+	for file in files:
+		print "processing file:" + file
+# 		name = os.path.basename(file)
+		index = file.find("_train_cls0.npz")
+		head = file[:index]
+		gen_filtered_data(head, is_filter_by_xy)
+
+def filter_reduplicated_xy_data(df):
+	flg = df.duplicated(['before', 'after'])
+	df_filtered = df[~flg]
+	print "original length:{}, remained length:{}".format(len(df), len(df_filtered))
+	return df_filtered, df_filtered.index.tolist()
+
+def gen_filtered_data(file_head, is_filter_by_xy):
+
 # 	df_orig = pd.read_csv("{}_class.csv".format(file_head))
 	df = pd.read_csv("{}_train_cls0.csv".format(file_head))
 	data = np.load("{}_train_cls0.npz".format(file_head))
@@ -802,14 +883,33 @@ def gen_filtered_data(file_head):
 	x_t_c = data['x_t_c']
 	y_t = data['y_t']
 	x_t = data['x_t']
-
-	x_t_c, index = filter_reduplicated_data(x_t_c)
-	x_t = x_t[index]
-	y_t = y_t[index]
-	df_out = df.iloc[index]	
+	
+	df_out = None
+	val = random.uniform(0, 1)
+	if is_filter_by_xy and val < 0.45:
+		print "using strong filter approach!"
+		df_out, index = filter_reduplicated_xy_data(df)
+		x_t_c = x_t_c[index]
+		x_t = x_t[index]
+		y_t = y_t[index]
+	else:
+		x_t_c, index = filter_reduplicated_data(x_t_c)
+		x_t = x_t[index]
+		y_t = y_t[index]
+		df_out = df.iloc[index]
 	
 	df_out.to_csv(file_head + '_train_cls0_filtered.csv', index=False)	
 	np.savez(file_head + "_train_cls0_filtered.npz", x_t_c = x_t_c, x_t = x_t, y_t = y_t)
+
+	
+def pack_ensemble_data(x_file, y_file, output_file):
+	npz_data = np.load(x_file)
+	npy_data = load_numpy_data(y_file)
+	x = npz_data['x_t_c']
+	y = npy_data
+	
+	np.savez(output_file, x_t_c = x, y_t = y)
+	
 
 def get_training_data_from_files(root_path):
 	paths = gen_input_paths(root_path, ".npz")
@@ -829,7 +929,7 @@ def get_training_data_from_files(root_path):
 	x_t_c, index = filter_reduplicated_data(x_t_c)
 	y_t = y_t[index]
 	
-	y_t, x_t_c = filter_overlength_data([y_t, x_t_c], cfg.max_output_len)
+	y_t, x_t_c = filter_overlength_data([y_t, x_t_c], cfg.max_output_len - 20)
 	y_t, x_t_c = filter_unknown_data([y_t, x_t_c])
 	
 
@@ -840,7 +940,8 @@ def get_features(df):
 	y_t_cls = df['new_class1'].values
 # 	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
 	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
-	x_t = extract_2gram_feature(df)
+# 	x_t = extract_2gram_feature(df)
+	x_t = np.zeros((x_t_c.shape[0], 1))
 	y_t = extract_y_info(df)
 	index = np.where(y_t_cls!=0)[0].tolist()
 # 	y_t_cls = y_t_cls[index]
@@ -1317,6 +1418,9 @@ def display_data_info(data):
 	cnt = extract_before_len_feature(data).value_counts().sort_values()
 # 	print cnt
 
+
+	
+
 def add_class_info(in_path, out_path):
 	df = pd.read_csv(in_path)
 # 	before_after_dict = gen_before_after_dict(df)
@@ -1392,22 +1496,15 @@ def gen_one2one_dict(df):
 	
 	dump(before_after_dict, "../data/one2one_dict")
 
-def extract_val_ret_err(epoch=None):
-	file = None
-	if epoch is not None:
-		file = open('../data/valid_ret_{}.txt'.format(epoch), 'r')
-	else:
-		file = open('../data/valid_ret.txt', 'r')
+def extract_val_ret_err(path):
+	file = open(path, 'r')
 	wrong_list = []
 	lines = file.readlines()
 	for line in lines:
 		if line.startswith('[False]'):
 			wrong_list.append(line)
 	file.close()
-	if epoch is not None:
-		file = open('../data/valid_ret_err_{}.txt'.format(epoch), 'w')
-	else:
-		file = open('../data/valid_ret_err.txt', 'w')
+	file = open('{}_err.txt'.format(path), 'w')
 	file.writelines(wrong_list)
 	file.close()
 
@@ -1443,6 +1540,21 @@ def convert_ext_to_csv(root_path='../data/ext/'):
 			print df.head(3)
 			df.to_csv(file_path + '.csv', index=False)
 	print 'total data number:%d'%(total_num)
+
+def display_error_info(path):
+# 	import re
+# 	str = "a123b"
+	cnt_unk = 0
+	file = open(path, "r")
+	lines = file.readlines()
+	print "total length:%d"%len(lines)
+	for line in lines:
+		result = re.findall(r"\(Real: <GO> (.*)\)", line)
+		if result[0].strip() == cfg.unk_flg:
+			cnt_unk += 1
+	rate_unk = cnt_unk / float(len(lines))
+	print "err unk rate:{}".format(rate_unk)
+
 if __name__ == "__main__":
 	
 	train = pd.read_csv('../data/en_train_filted.csv')
