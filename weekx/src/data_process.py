@@ -774,7 +774,42 @@ def gen_train_feature_from_files(root_path = '../data/ext/'):
 			np.savez(out_npz_file, x_t_c = x_t_c, x_t = x_t, y_t = y_t)
 		else:
 			print "cls0 file already exists!do nothing for this file...skip"
-		
+def gen_label_from_files(root_path):
+	paths = gen_input_paths(root_path, "_sampling.npz")
+	flg_dict = {"DIGIT":1,
+				'FRACTION':1,
+				'ADDRESS':1,
+				'TIME':1,
+				'TELEPHONE':1,
+				'MONEY':1,
+				'VERBATIM':0,
+				'LETTERS':1,
+				'ORDINAL':1,
+				'MEASURE':1,
+				'PLAIN':0,
+				'CARDINAL':0,
+				'PUNCT':0,
+				'DATE':0,
+				'DECIMAL':1,
+				'ELECTRONIC':1,
+				}
+	for path in paths:
+		name = get_base_name(path)
+		head = root_path + name
+		out_path = head + '_ensemble.npz'
+		df = pd.read_csv("{}.csv".format(head))
+		labels = df['class'].apply(lambda x:flg_dict[x])
+		labels = labels.tolist()
+		print labels[:10]
+		print labels[-10:]
+		y = np.zeros((len(labels), 2), dtype=np.int)
+		for i in range(len(labels)):
+			y[i, labels[i]] = 1
+		data = np.load(path)
+		x = data["x_t_c"]
+		np.savez(out_path, x_t_c = x, y_t = y)
+		print "saved ensemble data:" + out_path
+
 def down_sampling_from_files(root_path):
 	#[0.093168881, 0.236129035, 0.4781071169, 0.1258843075, 0.0331648355, 0.0206633337, 0.0014361654, 
 	#0.0005622257, 0.0067212364, 0.0032343046, 5.35868059587229E-06, 0.000208211, 1.18745204312938E-05, 
@@ -786,12 +821,12 @@ def down_sampling_from_files(root_path):
 # 	 'ORDINAL':0.0067212364, 'MEASURE':0.0032343046, 'PLAIN':5.35868059587229E-06, 
 # 	 'CARDINAL':0.000208211, 'PUNCT':1.187452 04312938E-05, 'DATE':3.05062102180794E-05,
 # 	  'DECIMAL':0.0006687386, 'ELECTRONIC':3.86918462789051E-08}
-	sampling_distribution_dict = {'DIGIT':0.093168881, 'FRACTION':0.236129035, 
-	'ADDRESS':0.4781071169, 'TIME':0.1258843075, 'TELEPHONE':0.0331648355,
-	 'MONEY':0.0206633337, 'VERBATIM':0.0014361654, 'LETTERS':0.0005622257, 
-	 'ORDINAL':0.0067212364, 'MEASURE':0.0032343046, 'PLAIN':5.35868059587229E-06, 
-	 'CARDINAL':0.000208211, 'PUNCT':1.18745204312938E-05, 'DATE':3.05062102180794E-05,
-	  'DECIMAL':0.0006687386, 'ELECTRONIC':3.86918462789051E-08}
+	sampling_distribution_dict = {'DIGIT':0.378584603801995, 'FRACTION':1.0, 
+	'ADDRESS':1.0, 'TIME':1.0, 'TELEPHONE':0.0173469387755102,
+	 'MONEY':0.140262306863097, 'VERBATIM':0.0380336733713035, 'LETTERS':0.203213130341116, 
+	 'ORDINAL':0.018403162055336, 'MEASURE':0.0265320875627008, 'PLAIN':0.121040843214756, 
+	 'CARDINAL':0.774507284917573, 'PUNCT':0.033596837944664, 'DATE':0.834701216975245,
+	  'DECIMAL':0.00246072307401098, 'ELECTRONIC':0.0315122625330301}
 	
 	paths = gen_input_paths(root_path, "_cls0_filtered.npz")
 	for path in paths:
@@ -808,7 +843,7 @@ def get_down_sampling_data(file_head, sampling_distribution_dict, ref_col_name):
 	index = []
 	for i in range(len(df)):
 		col = df.at[i, ref_col_name]
-		prob = sampling_distribution_dict[col] * 12.0
+		prob = sampling_distribution_dict[col] * 1.0
 		val = random.uniform(0, 1)
 		if val <= prob:
 			index.append(i)
