@@ -704,7 +704,7 @@ def get_batch_data_onehot_copyNet(X, y, batchid, batch_size, shuffle=True):
 # 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
 	return X_batch, X_decode_batch, y_batch
 
-def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
+def restore_tf_model(model_prefix, sess, batch_size, is_train, new_model=True):
 	# Load graph file.
 	saver = tf.train.import_meta_graph(model_prefix + '.meta')
 	saver.restore(sess, model_prefix)
@@ -728,7 +728,7 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 						)
 	
 	# Restore parameters in Model object with restored value.
-	model.restore_from_session(sess)
+	model.restore_from_session(sess, new_model)
 
 	return model
 
@@ -2287,7 +2287,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 			initial_epoch = int(m.group(1)) + 1
 			initial_epoch = 11
 			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
-			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
+			model = restore_tf_model(pre_train_model_prefix, sess, batch_size, True)
 			
 		log_dir = '../logs/tf/'
 # 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
@@ -2537,7 +2537,7 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 			decode_teach(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
 		else:
 			#decode(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
-			decode_tf(x_list[cls], cls_df_list[cls], data_args['model_normal'][cls])
+			decode_tf(x_list[cls], cls_df_list[cls], data_args['model_normal'][cls], (cls!=0))
 		if is_evaluate:
 			evalute_result(x_list[cls], "../data/noraml_err_cls{}.csv".format(cls + 1))
 	
@@ -2660,7 +2660,7 @@ def decode(X, df_test, weights_file):
 		
 	df_test['p_after'] = pd.Series(normalizations)
 	
-def decode_tf(X, df_test, model_prefix, batch_size=256):
+def decode_tf(X, df_test, model_prefix, new_model, batch_size=256):
 	def calculate_lens(data):
 		len_list = []
 		PAD = 0
@@ -2675,7 +2675,7 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 
 	with tf.Session() as sess:
 		# Restore trained model.
-		model = restore_tf_model(model_prefix, sess, 256, False)
+		model = restore_tf_model(model_prefix, sess, 256, False, new_model)
 
 		# Do normalization on test data.
 		normalizations = []
@@ -2692,14 +2692,20 @@ def decode_tf(X, df_test, model_prefix, batch_size=256):
 			Y_empty_lens = np.zeros(size)
 			
 			data_dict={}
-			data_dict['encoder_inputs'] = batch_X
-			data_dict['encoder_lengths'] = batch_X_lens
-			data_dict['decoder_inputs'] = Y_empty
-			data_dict['decoder_lengths'] = Y_empty_lens
-			data_dict['keep_output_rate'] = cfg.de_keep_rate
-			data_dict['init_lr_rate'] = cfg.init_lr_rate
-			data_dict['decay_step'] = cfg.decay_step
-			data_dict['decay_factor'] = cfg.decay_factor
+			data_dict={}
+			if not new_model:
+				data_dict['encoder_inputs'] = batch_X
+				data_dict['encoder_lengths'] = batch_X_lens
+				data_dict['decoder_inputs'] = Y_empty
+				data_dict['decoder_lengths'] = Y_empty_lens
+			else:
+				data_dict['encoder_inputs'] = batch_X
+				data_dict['encoder_lengths'] = batch_X_lens
+				data_dict['decoder_inputs'] = Y_empty
+				data_dict['decoder_lengths'] = Y_empty_lens
+				data_dict['keep_output_rate'] = cfg.de_keep_rate
+				data_dict['init_lr_rate'] = cfg.init_lr_rate
+				data_dict['decay_step'] = cfg.decay_step
 			feed_dict_de = model.make_feed_dict(data_dict)
 			# Run prediction on batch data.
 			beam_result_ids = sess.run(
