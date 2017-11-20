@@ -94,7 +94,7 @@ class Config(object):
 	infer_freqv = 1
 	n_gpus = 1
 	input_hidden_dim = 512
-	encoder_hidden_size = 250
+	encoder_hidden_size = 256
 	n_encoder_layers = 4
 	n_decoder_layers = 1
 	decoder_hidden_size = encoder_hidden_size
@@ -138,7 +138,12 @@ class Config(object):
 	conv_depth = 32 # use 32 kernels in both convolutional layers
 	kernel_size = 3
 	
+	init_lr_rate=2.5
+	decay_step=15000
+	decay_factor=0.85
 	
+	init_sampling_prob = 0.0
+	sp_decay_step = 1000
 	data_args_train_no_classify2 = {'df_test':'../data/train_filted_classify.csv',
 					   'feat_classify':'../data/en_train_classify.npz',
 					   'feat_normalization':'../data/en_train.npz',
