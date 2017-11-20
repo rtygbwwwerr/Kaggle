@@ -50,6 +50,7 @@ from sklearn.cross_validation import train_test_split
 import sys
 from post_processor import RuleBasedNormalizer
 
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 from __builtin__ import str
@@ -3155,6 +3156,10 @@ def eval_trained_model(batch_size=256):
 
 
 if __name__ == "__main__":
+	data_process.pack_ensemble_data("../data/train/train_cls0.npz",
+								    "../data/ensemble_label.npy", 
+								    "../data/train_ensemble/train_cls0_ensemble.npz")
+	experiment_classify_ensemble()
 # 	data_process.gen_alpha_table_from_files("../data/ext")
 # 	data_process.display_error_info("../data/mini_valid_ret_500.txt_err.txt")
 # 	data_process.extract_val_ret_err()
@@ -3255,13 +3260,13 @@ if __name__ == "__main__":
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
-						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-						   pre_train_model_prefix="../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.08-0.02373-0.99385-0.98268-95.97000.ckpt-79424",
-# 							pre_train_model_prefix=None,
-						   )
-
-# 	experiment_classify_ensemble()
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
+# 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
+# 						   pre_train_model_prefix="../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.08-0.02373-0.99385-0.98268-95.97000.ckpt-79424",
+# # 							pre_train_model_prefix=None,
+# 						   )
+	
+	
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()
