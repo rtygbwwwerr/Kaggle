@@ -749,11 +749,19 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 # 		
 # 		sess.run([model.train_op, model.decoder_result_ids, model.loss, model._grads], feed_dict)
 # 	return " ".join(decoded_sentence)
+
+def sigmoid_increase(x, change_step):
+	x = (x / change_step) * change_step
+# 	val = (1 / (1 + math.exp(13 - 1.0 / 10000*x)) + 1 / (1 + math.exp(8 - 1.0 / 5000*x)) * (1/7.0)) / (1.1428571428571428)
+# 	val = (1 / (1 + math.exp(11 - 1.0 / 10000*x)) + 1 / (1 + math.exp(8 - 1.0 / 5000*x)) * (1/6.0)) / (1.05)
+	val = (1 / (1 + math.exp(10 - 1.0 / 7500*x)) + 1 / (1 + math.exp(8 - 1.0 / 5000*x)) * (1/5.0)) / (1.2)
+	return val
 	
+
 def train_tf_tailored_teaching_attention(
 			sess, model, log_dir, ret_file_head, 
 			X_train, Y_train, X_valid, Y_valid, 
-			initial_epoch, batch_size=128, nb_epoch = 100):
+			initial_epoch, start_step, batch_size=128, nb_epoch = 100):
 	
 	dataset = NumpySeqData(cfg.pad_flg_index, cfg.end_flg_index)
 	dataset.load(X_train, Y_train, X_valid, Y_valid, cfg.vocab_i2word)
@@ -777,8 +785,8 @@ def train_tf_tailored_teaching_attention(
 	saver = tf.train.Saver(max_to_keep=100)
 # 	summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
 	train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
-	
-	print "Training Start!"
+	g_step = start_step
+	print "Training Start!,init step:{}".format(g_step)
 	for epoch in range(initial_epoch, max_epoch):
 		print "Epoch {}".format(epoch)
 		epoch_loss = 0.
@@ -789,7 +797,8 @@ def train_tf_tailored_teaching_attention(
 			data_dict['init_lr_rate'] = cfg.init_lr_rate
 			data_dict['decay_step'] = cfg.decay_step
 			data_dict['decay_factor'] = cfg.decay_factor
-			data_dict['init_sampling_prob'] = cfg.init_sampling_prob
+# 			data_dict['init_sampling_prob'] = cfg.init_sampling_prob
+			data_dict['init_sampling_prob'] = sigmoid_increase(g_step, cfg.sp_decay_step)
 			data_dict['sp_decay_step'] = cfg.sp_decay_step
 			feed_dict = model.make_feed_dict(data_dict)
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
@@ -805,9 +814,10 @@ def train_tf_tailored_teaching_attention(
 				avg_acc = epoch_acc / print_step
 				avg_acc_seq = epoch_acc_seq / print_step
 
-				print "Epoch:{epoch:3d}/{total_epoch:3d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
+				print "Epoch:{epoch:3d}/{total_epoch:3d}, g_Step:{g_Step:8d}, Step:{cur_step:6d}/{all_step:6d} ... Loss: {loss:.5f}/{loss_avg:.5f}, token_acc:{token_acc:.5f}/{acc_avg:.5f}, seq_acc:{seq_acc:.5f}/{seq_acc_avg:.5f}, grad:{grad:.8f}, sp:{sp:.8f}, lr:{lr:.8f}".format(
 																			 epoch=epoch,
 																			 total_epoch=max_epoch,
+																			 g_Step=g_step,
 																			 cur_step=print_step,
 																			 all_step=step_nums,
 																			 loss=loss_value,
@@ -880,9 +890,9 @@ def valid_data(sess, model, dataset, batch_size, batch_num=10, print_detil=True)
 		feed_dict = model.make_feed_dict(data_dict)
 		beam_result_ids = sess.run(model.beam_search_result_ids, feed_dict)
 		beam_result_ids = beam_result_ids[:, :, 0]
-		print beam_result_ids.shape
+# 		print beam_result_ids.shape
 		if step == 0:
-			print(data_dict['decoder_inputs'][:5])
+# 			print(data_dict['decoder_inputs'][:5])
 			print(beam_result_ids[:5])
 		now_right, now_wrong, infos = dataset.eval_result(data_dict['encoder_inputs'], data_dict['decoder_inputs'], beam_result_ids, step, batch_size, print_detil)
 		right += now_right
@@ -1533,6 +1543,48 @@ def gen_model_teaching_GRU():
 # 				   'decoder_lstm':decoder_lstm, 'decoder_dense':decoder_dense }
 	return model
 
+def gen_model_ensemble_0():
+	
+	
+	embedding_layer = Embedding(input_dim = cfg.vocab_size,  
+                            output_dim = cfg.embedding_size,  
+                            input_length=cfg.max_input_len,
+                            embeddings_initializer = 'glorot_uniform',
+#                             weights=[embedding_matrix],  
+                            trainable=True)
+	
+	model = Sequential()
+	model.add(embedding_layer)
+# 	model1.add(GaussianNoise(1))
+	model.add(Conv1D(filters = 32, kernel_size = 2))
+	model.add(PReLU())
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+	model.add(Conv1D(filters = 32, kernel_size = 2, activation='relu', kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())
+	model.add(MaxPool1D(2))
+	
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(Conv1D(filters = 32, kernel_size = 3, activation='relu',  kernel_regularizer=l2(0.01)))
+	model.add(BatchNormalization())	 
+	model.add(MaxPool1D(2))
+	model.add(Dropout(0.1))
+	
+	model.add(Flatten())
+	model.add(Dense(64, activation='relu',))
+	model.add(Dropout(0.1))
+	model.add(Dense(128, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
+	model.add(Dropout(0.25))
+	
+	model.add(Dense(2, activation='softmax'))
+	model.compile(loss='categorical_crossentropy', optimizer = 'Adagrad', metrics=["accuracy"])
+	return model
+	
+
 def gen_model_class_0():
 	
 	embedding_len = cfg.input_vocab_size / 2
@@ -1924,7 +1976,7 @@ def gen_model_class_4():
 	model.add(Flatten())
 	model.add(Dense(128, activation='relu',))
 	model.add(Dropout(0.1))
-	model.add(Dense(256, activation='sigmoid', kernel_regularizer=l2(0.01), kernel_constraint=maxnorm(2.), bias_regularizer=l2(0.01)))
+	model.add(Dense(256, activation='sigmoid', kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)))
 	model.add(Dropout(0.25))
 	
 	model.add(Dense(2, activation='softmax'))
@@ -2210,6 +2262,7 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 		if is_debug:
 			sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 		model = None
+		start_step = 1
 		if pre_train_model_prefix is None:
 			model = model_maker.make_tf_tailored_seq2seq(
 					n_encoder_layers = cfg.n_encoder_layers,
@@ -2231,15 +2284,16 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
 # 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
 # 			initial_epoch = int(m.group(1)) + 1
-			initial_epoch = 8
+			initial_epoch = 9
+			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
 			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
-
+			
 		log_dir = '../logs/tf/'
 # 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
 # 	model.compile(loss='sparse_categorical_crossentropy', optimizer='rmsprop')
 # 	print(model.summary())
 		train_tf_tailored_teaching_attention(sess, model, log_dir, file_head + str(cls_id), x_train, y_train, x_valid, y_valid, initial_epoch,
-				batch_size=batch_size, nb_epoch = nb_epoch + initial_epoch)
+				start_step=start_step, batch_size=batch_size, nb_epoch = nb_epoch + initial_epoch)
 
 
 	
@@ -2328,6 +2382,21 @@ def experiment_classify():
 	
 	train_classify(model, "class_cnn", x_train, y_train, x_valid, y_valid, 
 				batch_size=256, nb_epoch = 200)
+
+def experiment_classify_ensemble():
+# 	y_t = data_process.load_numpy_data("../data/train_y_2class.npy")
+# 	
+# 	data = np.load("../data/train_cls0.npz")
+# 	x_t_c = data['x_t_c']
+	x_t_c, y_t = data_process.get_training_data_from_files('../data/train_ensemble/')
+# 	x_t_c, y_t = data_process.get_training_data_from_files('../data/valid_ensemble/')
+# 	y_t = np.array(np.ones((x_t_c.shape[0], 2), dtype=np.int))
+
+	x_train, x_valid, y_train, y_valid = train_test_split(x_t_c, y_t, test_size=1000, random_state=0)
+	model = gen_model_ensemble_0()
+	print(model.summary())
+	train_classify(model, "ensemble_cnn_c0", x_train, y_train, x_valid, y_valid, 
+			batch_size=256, nb_epoch = 100)
 	
 def experiment_classify_char():
 	y_t = data_process.load_numpy_data("../data/train_y_2class.npy")
@@ -2438,7 +2507,7 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 	data = np.load(data_args['feat_normalization'])
 # 	x_t = data['x_t']
 	x_t_c = data['x_t_c']
-	np.savetxt("../data/X_test.txt", x_t_c.astype(np.int32), '%d')
+# 	np.savetxt("../data/X_test.txt", x_t_c.astype(np.int32), '%d')
 	
 	if test_size > 0:
 		x_t_c = x_t_c[:test_size]
@@ -3188,9 +3257,11 @@ if __name__ == "__main__":
 
 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-# 						   pre_train_model_prefix="../checkpoints/mini/mini.1_600-0.13911-0.40909.ckpt-600",
-							pre_train_model_prefix=None,
+						   pre_train_model_prefix="../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.08-0.02373-0.99385-0.98268-95.97000.ckpt-79424",
+# 							pre_train_model_prefix=None,
 						   )
+
+# 	experiment_classify_ensemble()
 
 # 	experiment_classify_char_and_extend()
 # 	t = fst.Transducer()

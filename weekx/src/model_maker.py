@@ -1685,7 +1685,7 @@ class Seq2SeqModel:
 		
 		return decoder_results
 	
-	def _build_sampling_schedule(self, global_step, decay_steps, learning_rate=0.0001, offest=13.0, staircase=True):
+	def _build_sampling_schedule(self, global_step, decay_steps=10000, learning_rate=0.9, offest=5.0, staircase=True):
 		with tf.variable_scope('sampling_schedule'):
 			learning_rate = ops.convert_to_tensor(learning_rate, name="learning_rate")
 			dtype = learning_rate.dtype
