@@ -1,7 +1,7 @@
 import os
 import copy
 import pandas as pd
-from dns.name import root
+
 
 
 def clear_files(path):
@@ -226,6 +226,6 @@ def make_project(parent_name, name, cols):
 		
 
 if __name__ == "__main__":
-  	make_project("../", 'weekx', ['sentence_id','token_id','class','before','after'])
+  	make_project("../", 'weekasr', ['id'])
 # 	gen_data_process_file('../week4', ['date_time','site_name','posa_continent','user_location_country','user_location_region','user_location_city','orig_destination_distance','user_id','is_mobile','is_package','channel','srch_ci','srch_co','srch_adults_cnt','srch_children_cnt','srch_rm_cnt','srch_destination_id','srch_destination_type_id','hotel_continent','hotel_country','hotel_market','is_booking','cnt','hotel_cluster'])
 #  	gen_data_process_file('../weekx', ['sentence_id','token_id','class','before','after'])
