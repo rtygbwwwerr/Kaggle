@@ -40,10 +40,6 @@ def extract_id_feature(data, is_normalized=False):
 
 
 
-
-
-
-
 def extract_all_features(df_list, is_normalized=False):
 	data_all = pd.concat(df_list)
 	feats_name = [
