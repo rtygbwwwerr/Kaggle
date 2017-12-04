@@ -51,14 +51,15 @@ import sys
 from post_processor import RuleBasedNormalizer
 
 
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 from __builtin__ import str
-cfg.init()
+cfg.init ()
 rule_norm_obj = RuleBasedNormalizer()
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def submission(flag_y, df_test, file = '../data/submission.csv'):
@@ -704,7 +705,7 @@ def get_batch_data_onehot_copyNet(X, y, batchid, batch_size, shuffle=True):
 # 	decoder_inputs_lengths = np.sum(X_decode_batch!=cfg.pad_flg_index, axis=1)
 	return X_batch, X_decode_batch, y_batch
 
-def restore_tf_model(model_prefix, sess, batch_size, is_train, new_model=True):
+def restore_tf_model(model_prefix, sess, batch_size, is_train=True):
 	# Load graph file.
 	saver = tf.train.import_meta_graph(model_prefix + '.meta')
 	saver.restore(sess, model_prefix)
@@ -728,7 +729,7 @@ def restore_tf_model(model_prefix, sess, batch_size, is_train, new_model=True):
 						)
 	
 	# Restore parameters in Model object with restored value.
-	model.restore_from_session(sess, new_model)
+	model.restore_from_session(sess)
 
 	return model
 
@@ -2285,9 +2286,9 @@ def experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=
 # 			m = re.match('.*_c\d+\.(\d+)\-.*', pre_train_model_prefix)
 # 			assert (m and len(m.groups()) > 0), 'Failed to get epoch number while restoring model!'
 # 			initial_epoch = int(m.group(1)) + 1
-			initial_epoch = 11
+			initial_epoch = 36
 			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
-			model = restore_tf_model(pre_train_model_prefix, sess, batch_size, True)
+			model = restore_tf_model(pre_train_model_prefix, sess, batch_size)
 			
 		log_dir = '../logs/tf/'
 # 	model = AttentionSeq2Seq(input_dim=cfg.max_input_len, hidden_dim=cfg.input_hidden_dim, output_length=cfg.max_output_len, output_dim=cfg.output_vocab_size, depth=2)
@@ -2537,7 +2538,7 @@ def run_normalize(is_evaluate = False, test_size=0, use_classifier = True, data_
 			decode_teach(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
 		else:
 			#decode(x_list[cls], cls_df_list[cls], weights_file=data_args['model_normal'][cls])
-			decode_tf(x_list[cls], cls_df_list[cls], data_args['model_normal'][cls], (cls!=0))
+			decode_tf(x_list[cls], cls_df_list[cls], data_args['model_normal'][cls])
 		if is_evaluate:
 			evalute_result(x_list[cls], "../data/noraml_err_cls{}.csv".format(cls + 1))
 	
@@ -2632,7 +2633,7 @@ def gen_result_file(index_list, df_test, cls_df_list, test_ret_file, ret_file, o
 			data_process.dump(df_test_err.index.tolist(), err_index_file)
 			print "saved error index to file:" + err_index_file
 	
-	df_test.to_csv(test_ret_file, index=False)	
+	df_test.to_csv(test_ret_file, index=False)
 	print 'saved test result file:' + test_ret_file
 	
 
@@ -2660,7 +2661,7 @@ def decode(X, df_test, weights_file):
 		
 	df_test['p_after'] = pd.Series(normalizations)
 	
-def decode_tf(X, df_test, model_prefix, new_model, batch_size=256):
+def decode_tf(X, df_test, model_prefix, batch_size=256):
 	def calculate_lens(data):
 		len_list = []
 		PAD = 0
@@ -2675,7 +2676,7 @@ def decode_tf(X, df_test, model_prefix, new_model, batch_size=256):
 
 	with tf.Session() as sess:
 		# Restore trained model.
-		model = restore_tf_model(model_prefix, sess, 256, False, new_model)
+		model = restore_tf_model(model_prefix, sess, 256, False)
 
 		# Do normalization on test data.
 		normalizations = []
@@ -2692,20 +2693,14 @@ def decode_tf(X, df_test, model_prefix, new_model, batch_size=256):
 			Y_empty_lens = np.zeros(size)
 			
 			data_dict={}
-			data_dict={}
-			if not new_model:
-				data_dict['encoder_inputs'] = batch_X
-				data_dict['encoder_lengths'] = batch_X_lens
-				data_dict['decoder_inputs'] = Y_empty
-				data_dict['decoder_lengths'] = Y_empty_lens
-			else:
-				data_dict['encoder_inputs'] = batch_X
-				data_dict['encoder_lengths'] = batch_X_lens
-				data_dict['decoder_inputs'] = Y_empty
-				data_dict['decoder_lengths'] = Y_empty_lens
-				data_dict['keep_output_rate'] = cfg.de_keep_rate
-				data_dict['init_lr_rate'] = cfg.init_lr_rate
-				data_dict['decay_step'] = cfg.decay_step
+			data_dict['encoder_inputs'] = batch_X
+			data_dict['encoder_lengths'] = batch_X_lens
+			data_dict['decoder_inputs'] = Y_empty
+			data_dict['decoder_lengths'] = Y_empty_lens
+			data_dict['keep_output_rate'] = cfg.de_keep_rate
+			data_dict['init_lr_rate'] = cfg.init_lr_rate
+			data_dict['decay_step'] = cfg.decay_step
+			data_dict['decay_factor'] = cfg.decay_factor
 			feed_dict_de = model.make_feed_dict(data_dict)
 			# Run prediction on batch data.
 			beam_result_ids = sess.run(
@@ -3078,7 +3073,41 @@ def search_path_beam_teach(decoder, init_state, beam_size):
 	decoded_sentence.reverse()
 	
 
-	return decoded_sentence    
+	return decoded_sentence
+
+def run_classify(sub0_csv, sub1_csv, orig_cls_csv, output_csv, feat_file, classify_model):
+	df_sub0 = pd.read_csv(sub0_csv)
+	df_sub1 = pd.read_csv(sub1_csv)
+	
+	print len(df_sub0)
+	print len(df_sub1)
+	
+	df_orig = pd.read_csv(orig_cls_csv)
+	
+	data = np.load(feat_file)
+	x = data['x_t_c']
+# 	y = data['y_t']
+	
+	classifier = gen_model_ensemble_0()
+	print(classifier.summary())
+	classifier.load_weights(classify_model)
+	predict_y = classifier.predict(x, batch_size = 256, verbose=0)
+	p_y = np.argmax(predict_y, axis=1)
+	print "cls0 num:{}, cls1 num:{}".format(p_y.tolist().count(0), p_y.tolist().count(1))
+	cnt = 0
+	for i in range(len(df_sub0)):
+		if p_y[i] == 1 and df_orig.at[i, 'new_class'] != 0 and df_sub0.at[i, 'after'] != df_sub1.at[i, 'after']:
+			print "token:{}  sub0:{} -> sub1:{}".format(df_orig.at[i, 'before'], df_sub0.at[i, 'after'], df_sub1.at[i, 'after'])
+			df_sub0.at[i, 'after'] = df_sub1.at[i, 'after']
+			cnt = cnt + 1
+	df_sub0.to_csv(output_csv, index=False)
+	print "output processed submission file:{}, replaced num:{}".format(output_csv, cnt)
+	
+	if 'after' in df_orig.columns.values.tolist():
+		corrected_ret = df_orig[df_orig['after']==df_sub0['after']]
+		acc = len(corrected_ret) / float(len(df_orig))
+		print "total entries:{}, acc:{}".format(len(df_orig), acc)
+		
 def run_evalute_and_split():
 	df_test = pd.read_csv('../data/train_cls0.csv')
 	df_test['p_new_class'] = -1
@@ -3165,8 +3194,22 @@ def eval_trained_model(batch_size=256):
 		print "Right: {}, Wrong: {}, Accuracy: {:.2}%".format(right, wrong, 100*right/float(right+wrong))
 
 
-
 if __name__ == "__main__":
+# 	data_process.add_class_info('../data/en_test.csv', "../data/en_test1_class.csv")
+	
+# 	df = pd.read_csv('../data/en_test1_class.csv')
+# 	data_process.gen_test_feature(df)
+# 	run_classify(
+# 				sub0_csv="../data/test1_submission0.csv", 
+# 				sub1_csv='../data/test1_submission1.csv', 		
+# 				orig_cls_csv="../data/en_test1_class.csv", 
+# 				output_csv="../data/en_test1_submission_megred.csv", 
+# 				feat_file="../data/en_test1_classify.npz", 
+# 				classify_model='../checkpoints/ensemble_cnn_c0_weights.14-0.0148-0.9962-0.0266-0.9944.hdf5')
+	
+	
+
+# 	df = pd.read_csv('../data/en_submission_megred.csv')
 	
 # 	data_process.pack_ensemble_data("../data/train/train_cls0.npz",
 # 								    "../data/ensemble_label.npy", 
@@ -3181,7 +3224,7 @@ if __name__ == "__main__":
 
 # 	data_process.down_sampling_from_files('../data/ext3/')
 # 	data_process.gen_label_from_files("../data/ext3/")
-	experiment_classify_ensemble()
+# 	experiment_classify_ensemble()
 # 	df = pd.read_csv('../data/ext/output-00001-of-00100_train_cls0_filtered.csv')
 # 	data_process.filter_reduplicated_xy_data(df)
 # 	data_process.gen_constant_dict()
@@ -3271,15 +3314,25 @@ if __name__ == "__main__":
 
 # 	out = data_process.recover_y_info([1, 1307, 256, 1136, 1307, 1056, 1307, 1464, 256, 3903, 1755, 2401, 1883, 3903, 1307, 1464, 1952, 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1])
 # 	print out 
-# 	run_normalize(False, 1000, True, cfg.data_args_test)
+# 	run_normalize(False, 0, False, cfg.data_args_test)
+# 	
+	run_classify(
+				sub0_csv="../data/en_submission0.csv", 
+				sub1_csv='../data/en_submission1.csv', 		
+				orig_cls_csv="../data/en_test_class.csv", 
+				output_csv="../data/en_submission_megred.csv", 
+				feat_file="../data/en_test_classify.npz", 
+				classify_model='../checkpoints/ensemble_cnn_c0_weights.14-0.0148-0.9962-0.0266-0.9944.hdf5')
+	
+	
 # 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, cls_id=0,
 # 						   file_head="tf_teach_att384_bl4_bl1_c", pre_train_model_file=None)
 
-# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=10000, cls_id=0,
-# 						   file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
-# 						   pre_train_model_prefix="../checkpoints/mini/mini.11_900-0.98143-0.96875.ckpt-100180",
+# 	experiment_teaching_tf(batch_size=256, nb_epoch=100, input_num=0, test_size=20000, cls_id=0,
+# 						file_head="tf_teach_sche_att_bl4_bl1_c", is_debug=False, 
+# 						pre_train_model_prefix="../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.35-0.01908-0.99412-0.98719-98.51500.ckpt-362729",
 # # 							pre_train_model_prefix=None,
-# 						   )
+# )
 	
 	
 
