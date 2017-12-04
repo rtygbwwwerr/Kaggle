@@ -1822,24 +1822,7 @@ class Seq2SeqModel:
 				raise ValueError('Unexpected argument in input dictionary!')
 		return feed_dict
 
-	def restore_from_session(self, sess, new_model=True):
-		if not new_model:
-			self._inputs['encoder_inputs'] = sess.graph.get_tensor_by_name("encoder_inputs:0")
-			self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
-			self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
-			self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
-			#self.train_op = sess.graph.get_operation_by_name("train/train_step")
-			self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
-			self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
-			self.accuracy = sess.graph.get_tensor_by_name("accuracy_target/acc:0")
-			self.accuracy_seqs = sess.graph.get_tensor_by_name("accuracy_target/seq_acc:0")
-			self.loss = sess.graph.get_tensor_by_name("seq_loss:0")
-			#self._grads = sess.graph.get_tensor_by_name("train/gradient:0")
-			#self.lr = sess.graph.get_tensor_by_name("train/lr_clip:0")
-			#self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
-			#self.summary_op = sess.graph.get_tensor_by_name("summary_op:0")
-			return
-
+	def restore_from_session(self, sess):
 		self._inputs['encoder_inputs'] = sess.graph.get_tensor_by_name("encoder_inputs:0")
 		self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
 		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
