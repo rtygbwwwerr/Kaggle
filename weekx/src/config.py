@@ -138,7 +138,7 @@ class Config(object):
 	conv_depth = 32 # use 32 kernels in both convolutional layers
 	kernel_size = 3
 	
-	init_lr_rate=2.5
+	init_lr_rate=8.5
 	decay_step=15000
 	decay_factor=0.85
 	
@@ -188,14 +188,14 @@ class Config(object):
 					   'origin_file':"../data/en_train_filted_class.csv",}
 	
 	data_args_test = {'df_test':'../data/test_filted_classify.csv',
-					   'feat_classify':'../data/en_test_classify.npz',
+					   'feat_classify':None,
 					   'feat_normalization':'../data/en_test.npz',
 					   'model_classify':None,
-					   'model_normal':["../model/tf/tf_teach_sche_att_bl4_bl1_c0.02-1.27522-0.72720-0.62842-75.00000.ckpt-78"],
+					   'model_normal':["../checkpoints/tf/tf_teach_sche_att_bl4_bl1_c0.84-0.00687-0.99799-0.99526-98.87000.ckpt-886000"],
 					   'test_ret_file':'../data/en_train_test_ret.csv',
 					   'test_ret_file_err':None,
 					   'ret_file':'../data/en_test_ret.csv',
-					   'sub_file':'../data/en_submission.csv',
+					   'sub_file':'../data/en_submission1.csv',
 					   'origin_file':"../data/en_test_class.csv",}
 	
 	dic_month = {"Jan":'january','Feb': 'february','Mar': 'march','Apr': 'april','May': 'may',
