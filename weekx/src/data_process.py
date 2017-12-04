@@ -361,7 +361,7 @@ def extract_fragment_char_feature(data, l_len_max=50, m_len_max=50, r_len_max=50
 	print "complated extract fragment char feature!"
 	return features_l, features_m, features_r
 		
-def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normalized=False):
+def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normalized=True):
 	
 	features = []
 	N = len(data)
@@ -371,7 +371,7 @@ def extract_char_feature(data, max_length = 200, fn_c2i=char_to_code, is_normali
 		if i % 100000 == 0:
 			print i
 			
-		if data.at[i, 'new_class1'] == 0:
+		if data.at[i, 'new_class1'] == 0 and is_normalized:
 			continue
 		
 		token_id = data.at[i, 'token_id']
@@ -730,7 +730,7 @@ def gen_classify_feature(df):
 		
 def gen_test_feature(df):
 	y_t_cls = df['new_class'].values
-	x_t_cls = extract_char_feature(df, cfg.max_classify_input_len)
+	x_t_cls = extract_char_feature(df, cfg.max_input_len, char_to_code_nor, False)
 	x_t_c = extract_char_feature(df, cfg.max_input_len, char_to_code_nor)
 	x_t = extract_2gram_feature(df)
 	index = np.where(y_t_cls!=0)[0].tolist()
@@ -742,9 +742,9 @@ def gen_test_feature(df):
 	print(y_t_cls.shape[0])
 	print len(df_out)
 	
- 	df_out.to_csv('../data/test_filted_classify.csv', index=False)
-	np.savez("../data/en_test_classify.npz", x_t = x_t_cls)
-	np.savez("../data/en_test.npz", x_t_c = x_t_c, x_t = x_t)
+ 	df_out.to_csv('../data/test1_filted_classify.csv', index=False)
+	np.savez("../data/en_test1_classify.npz", x_t_c = x_t_cls)
+	np.savez("../data/en_test1.npz", x_t_c = x_t_c, x_t = x_t)
 # 	np.savez("../data/en_test_frag_char.npz", x_char_l=x_char_l, x_char_m=x_char_m, x_char_r=x_char_r)
 
 def get_base_name(path):
@@ -802,6 +802,7 @@ def gen_label_from_files(root_path):
 		labels = labels.tolist()
 		print labels[:10]
 		print labels[-10:]
+		print "cls0 num:{}, cls1 num:{}".format(labels.count(0), labels.count(1))
 		y = np.zeros((len(labels), 2), dtype=np.int)
 		for i in range(len(labels)):
 			y[i, labels[i]] = 1
@@ -823,9 +824,9 @@ def down_sampling_from_files(root_path):
 # 	  'DECIMAL':0.0006687386, 'ELECTRONIC':3.86918462789051E-08}
 	sampling_distribution_dict = {'DIGIT':0.378584603801995, 'FRACTION':1.0, 
 	'ADDRESS':1.0, 'TIME':1.0, 'TELEPHONE':0.0173469387755102,
-	 'MONEY':0.140262306863097, 'VERBATIM':0.0380336733713035, 'LETTERS':0.203213130341116, 
-	 'ORDINAL':0.018403162055336, 'MEASURE':0.0265320875627008, 'PLAIN':0.121040843214756, 
-	 'CARDINAL':0.774507284917573, 'PUNCT':0.033596837944664, 'DATE':0.834701216975245,
+	 'MONEY':0.140262306863097, 'VERBATIM':0.0380336733713035, 'LETTERS':0.103213130341116, 
+	 'ORDINAL':0.018403162055336, 'MEASURE':0.0265320875627008, 'PLAIN':0.000040843214756, 
+	 'CARDINAL':0.504507284917573, 'PUNCT':0.003596837944664, 'DATE':0.834701216975245,
 	  'DECIMAL':0.00246072307401098, 'ELECTRONIC':0.0315122625330301}
 	
 	paths = gen_input_paths(root_path, "_cls0_filtered.npz")
@@ -1640,4 +1641,3 @@ if __name__ == "__main__":
 # 	display_sentence(78354)
 # 	group_data()
 # 	display_longest_sentence()
-
