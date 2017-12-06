@@ -128,6 +128,7 @@ def load_data(data_dir="../data/"):
 	return train, val
 
 
+
 def get_wav(data, resampline_sil_rate=20, is_normalization=True):
 	x = []
 	y = []
@@ -205,6 +206,50 @@ def gen_train_feature(data_dir="../data/"):
 	np.savez("../data/train/train.npz", x = x, y = y)
 	np.savez("../data/valid/valid.npz", x = v_x, y = v_y)
 	print "completed gen training data..."
+	
+def gen_test_feature(data_dir="../data/test/", is_normalization=True):
+	paths = gen_input_paths(data_dir + "audio/", ".wav")
+	print "test data num:{}".format(len(paths))
+	x = []
+	for i,fname in enumerate(paths):
+		_, wav = wavfile.read(fname)
+		wav = wav.astype(np.float32) / np.iinfo(np.int16).max
+		if is_normalization:
+			wav = standardization(wav)
+		L = cfg.sampling_rate
+
+		if len(wav) > L:
+			beg = np.random.randint(0, len(wav) - L)
+		else:
+			beg = 0
+		wav = wav[beg: beg + L]
+		x.append(wav)
+		if i % 10000 == 0:
+			print "read {} files".format(i)
+	print "completed read wav files, start extracting fearures..."
+		
+	x = get_features(x, mfcc)
+	
+	np.savez(data_dir + "test.npz", x = x)
+
+	print "completed gen test data..."
+	
+def get_test_data_from_files(root_path="../data/test/"):
+	paths = gen_input_paths(root_path, ".npz")
+	x_list = []
+
+	
+	print "We'll load {} files...".format(len(paths))
+	for path in paths:
+		print "load data from:" + path
+		data = np.load(path)
+		x_list.append(data['x'])
+		
+	
+	x = np.vstack(x_list)
+	
+
+	return x
 
 def gen_input_paths(root_path="../data/ext/", file_ext_name=".csv"):
 	list_path = os.listdir(root_path)
@@ -239,7 +284,7 @@ def get_training_data_from_files(root_path):
 	return x, y
 	
 def test():
-	gen_train_feature()
+	gen_test_feature()
 	
 
 

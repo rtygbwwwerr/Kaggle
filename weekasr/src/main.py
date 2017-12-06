@@ -2,17 +2,33 @@ import pandas as pd
 import data_process
 import model_maker_keras
 import numpy as np
-import config as cfg
+from config import Config as cfg
 from keras.callbacks import LearningRateScheduler, EarlyStopping,TensorBoard, ReduceLROnPlateau, ModelCheckpoint
 import time
 import math
+import os
 
-def submission(flag_y, df_test, file = '../data/submission.csv'):
-	sub = pd.DataFrame()
-	sub['id'] = df_test['id']
-	print "please implement!"
-	print "Submission samples:%d, file:%s"%(len(df_test), file)
-	sub.to_csv(file, index=False)
+
+def run_submission(filepath='../checkpoints/keras_cnn7_weights.41-0.0868-0.9718-0.2740-0.9343.hdf5'):
+	x = data_process.get_test_data_from_files()
+	x = np.reshape(x, x.shape + (1,))
+	model = model_maker_keras.make_cnn1(x[0].shape, cfg.CLS_NUM, trainable=False)
+	model.load_weights(filepath)
+	submission(model, x)
+
+def submission(model, x, file = '../data/submission.csv'):
+	
+	paths = data_process.gen_input_paths("../data/test/audio/", ".wav")
+	fnames = map(lambda f:os.path.basename(f), paths)
+	
+	predict_y = model.predict(x, batch_size = 256, verbose=0)
+	p_y = np.argmax(predict_y, axis=1)
+	p_labels = map(lambda y:cfg.i2n(y), p_y)
+	
+	df_sub = pd.DataFrame({'fname':fnames, 'label':p_labels})
+	print df_sub['label'].value_counts().sort_values()
+	print "Submission samples:%d, file:%s"%(len(fnames), file)
+	df_sub.to_csv(file, index=False)
 
 def classify_generator(X, y, batch_size=128, shuffle=True):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
@@ -69,7 +85,7 @@ def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, 
 # 	print val
 	print('Test logloss:', score)
 
-def experiment_keras_cnn(batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn7_", pre_train_model_prefix=None):
+def experiment_keras_cnn(batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn7", pre_train_model_prefix=None):
 	x_train, y_train = data_process.get_training_data_from_files("../data/train/")
 	x_valid, y_valid = data_process.get_training_data_from_files("../data/valid/")
 	if input_num > 0:
@@ -100,7 +116,7 @@ def experiment_keras_cnn(batch_size=256, nb_epoch=100, input_num=0, file_head="k
 
 
 if __name__ == "__main__":
-	experiment_keras_cnn()
+	run_submission()
 
 
 
