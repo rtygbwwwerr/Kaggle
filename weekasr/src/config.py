@@ -4,6 +4,7 @@ class Config(object):
 	
 	id2name = {i: name for i, name in enumerate(POSSIBLE_LABELS)}
 	name2id = {name: i for i, name in id2name.items()}
+	CLS_NUM = len(POSSIBLE_LABELS)
 	
 	non_flg_index = 0
 	unk_flg_index = 1

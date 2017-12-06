@@ -6,6 +6,7 @@ from sklearn import preprocessing
 from sklearn.cross_validation import train_test_split
 from sklearn import metrics
 from collections import Counter
+from keras.utils.np_utils import to_categorical
 import seaborn as sns
 from sklearn import preprocessing
 import os
@@ -166,6 +167,7 @@ def get_wav(data, resampline_sil_rate=20, is_normalization=True):
 			wav = wav[beg: beg + L]
 			x.append(wav)
 			y.append(np.int32(label_id))
+	y = to_categorical(y, num_classes = cfg.CLS_NUM)
 	return x, y
 
 
@@ -175,12 +177,16 @@ def get_features(data, extract_func=mfcc):
 	output = map(lambda x : extract_func(x, cfg.sampling_rate), data)
 	
 	return output
+
+
 def pad_data(data):
 	lengths = map(lambda x : len(x), data)
 	L = max(lengths)
 	npz_data = np.zeros((len(data), L, data[0].shape[1]))
 	for i, x in enumerate(data):
 		pad_x = x
+		if len(x) > L:
+			print "found overlength item!"
 		for j in range(len(x), L):
 			pad_x = np.row_stack(x, np.ones(x.shape[1]) * cfg.non_flg_index)
 		npz_data[i] = pad_x
@@ -199,6 +205,38 @@ def gen_train_feature(data_dir="../data/"):
 	np.savez("../data/train/train.npz", x = x, y = y)
 	np.savez("../data/valid/valid.npz", x = v_x, y = v_y)
 	print "completed gen training data..."
+
+def gen_input_paths(root_path="../data/ext/", file_ext_name=".csv"):
+	list_path = os.listdir(root_path)
+	
+# 	total_num = 0
+	paths = []
+	for path in list_path:
+		file_path = os.path.join(root_path, path)
+		if os.path.isfile(file_path) and file_path.endswith(file_ext_name):
+			paths.append(file_path)
+# 	paths.append('../data/en_train.csv')
+	
+	return paths
+
+def get_training_data_from_files(root_path):
+	paths = gen_input_paths(root_path, ".npz")
+	x_list = []
+	y_list = []
+	
+	print "We'll load {} files...".format(len(paths))
+	for path in paths:
+		print "load data from:" + path
+		data = np.load(path)
+		x_list.append(data['x'])
+		y_list.append(data['y'])
+		
+	
+	x = np.vstack(x_list)
+	y = np.vstack(y_list)
+	
+
+	return x, y
 	
 def test():
 	gen_train_feature()
