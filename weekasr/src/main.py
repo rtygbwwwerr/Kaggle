@@ -7,6 +7,7 @@ from keras.callbacks import LearningRateScheduler, EarlyStopping,TensorBoard, Re
 import time
 import math
 import os
+from sklearn.metrics import confusion_matrix
 
 
 def run_submission(filepath='../checkpoints/keras_cnn7_weights.41-0.0868-0.9718-0.2740-0.9343.hdf5'):
@@ -29,6 +30,37 @@ def submission(model, x, file = '../data/submission.csv'):
 	print df_sub['label'].value_counts().sort_values()
 	print "Submission samples:%d, file:%s"%(len(fnames), file)
 	df_sub.to_csv(file, index=False)
+
+
+def evaluate_set(model_path):
+	x_valid, y_valid = data_process.get_training_data_from_files("../data/valid/")
+	x_valid=np.reshape(x_valid,x_valid.shape + (1,))
+
+	model = model_maker_keras.make_cnn1(x_valid[0].shape, cfg.CLS_NUM, trainable=False)
+	model.load_weights(model_path)
+	predict_y = model.predict(x_valid, batch_size = 256, verbose=0)
+
+	true_y = np.argmax(y_valid, axis=1)
+	pred_y = np.argmax(predict_y, axis=1)
+
+	conf_mat = confusion_matrix(true_y, pred_y, labels=range(12))
+	print '==> confusion_matrix:', conf_mat
+
+	print '==> P/R/F:'
+	precision = [0.0] * cfg.CLS_NUM
+	recall = [0.0] * cfg.CLS_NUM
+	fscore = [0.0] * cfg.CLS_NUM
+	for i in range(cfg.CLS_NUM):
+		precision[i] = np.divide(conf_mat[i,i], float(np.sum(conf_mat[:,i])))
+		recall[i] = np.divide(conf_mat[i,i], float(np.sum(conf_mat[i,:])))
+		fscore[i] = 2 * precision[i] * recall[i] / (precision[i] + recall[i])
+		print '%s\t%.3f\t%.3f\t%.3f' % (cfg.i2n(i), precision[i], recall[i], fscore[i])
+
+	correct = np.sum(true_y == pred_y)
+	samples = x_valid.shape[0]
+	print '==> score:'
+	print '%.3f (%d/%d)' % (correct/float(samples), correct, samples)
+
 
 def classify_generator(X, y, batch_size=128, shuffle=True):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
@@ -116,7 +148,10 @@ def experiment_keras_cnn(batch_size=256, nb_epoch=100, input_num=0, file_head="k
 
 
 if __name__ == "__main__":
-	run_submission()
+	#data_process.gen_train_feature("../data/")
+	#experiment_keras_cnn(batch_size=256, nb_epoch=100, file_head="keras_cnn7")
+	#run_submission()
+	evaluate_set(model_path='../checkpoints/keras_cnn7_weights.92-0.0455-0.9858-0.2764-0.9340.hdf5')
 
 
 
