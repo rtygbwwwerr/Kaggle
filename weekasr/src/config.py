@@ -1,5 +1,7 @@
 
 class Config(object):
+	
+	
 	POSSIBLE_LABELS = 'silence unknown yes no up down left right on off stop go'.split()
 	
 	id2name = {i: name for i, name in enumerate(POSSIBLE_LABELS)}
@@ -13,6 +15,7 @@ class Config(object):
 	unk_flg = 'unknown'
 	
 	sampling_rate = 16000
+	
 	
 	@staticmethod
 	def i2n(i):
