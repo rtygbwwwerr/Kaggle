@@ -41,7 +41,7 @@ class Config(object):
 	embedding_size = 10
 
 	max_output_len_c = 12
-	max_output_len_w = 5
+	max_output_len_w = 3
 	
 	dict_vocabs = {}
 	
