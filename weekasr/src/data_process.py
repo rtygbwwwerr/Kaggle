@@ -23,7 +23,7 @@ from scipy.fftpack import fft
 from scipy.io import wavfile
 from scipy import signal
 from python_speech_features import mfcc, logfbank, fbank, delta
-
+from keras.preprocessing import sequence
 # cfg.init ()
 
 
@@ -203,13 +203,14 @@ def get_wav(data, is_normalization=True):
 	return x, y, y_c, y_w
 
 def warp_sil_labels(label):
-	labels = [cfg.start_flg, cfg.sil_flg]
+# 	labels = [cfg.start_flg, cfg.sil_flg]
+	labels = [cfg.sil_flg]
 	if type(label) is list:
 		labels.extend(label)
 	else:
 		labels.append(label)
 	labels.append(cfg.sil_flg)
-	labels.append(cfg.end_flg)
+# 	labels.append(cfg.end_flg)
 	return labels
 
 def get_char_indies(label):
@@ -371,7 +372,7 @@ def make_file_trim(type="npz", *args):
 	return name
 	
 	
-def get_training_data_from_files(root_path, label_name, filter_trim=None):
+def get_training_data_from_files(root_path, label_name, filter_trim=None, pad_id=0):
 	trim = get_file_trim(filter_trim = filter_trim)
 	print "process file type:" + trim
 	paths = gen_input_paths(root_path, trim)
@@ -383,13 +384,31 @@ def get_training_data_from_files(root_path, label_name, filter_trim=None):
 		print "load data from:" + path
 		data = np.load(path)
 		x_list.append(data['x'])
+# 		dy = data[label_name]
+# 		print dy.shape
 		y_list.append(data[label_name])
-
+		
 	x = np.vstack(x_list)
-	y = np.vstack(y_list)
-	
+	y = concate_datas(y_list, pad_id)
+
 
 	return x, y
+
+def concate_datas(data_list, pad_id=0):
+	datas = []
+	if check_type_consistency(data_list):
+		datas = np.vstack(data_list)
+	else:
+		for data in data_list:
+			datas.extend(list(data))
+		datas = sequence.pad_sequences(datas, dtype=np.int32, padding='post', value=pad_id)
+	return datas
+
+def check_type_consistency(data_list):
+	for data in data_list:
+		if not data_util.isDigitType(data):
+			return False
+	return True
 
 def load_data_ext(data_dir, default_label):
 	paths = gen_input_paths(data_dir, ".wav")
@@ -542,9 +561,9 @@ def test():
 	#name should in ["mfcc", "logfbank", "logspecgram"]
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	name = "mfcc"
+	name = "logspecgram"
 	is_normalization = True
-	down_rate=1.0
+	down_rate=0.5
 # 	gen_augmentation_data()
 # 	default_label = 'off'
 	gen_train_feature(name, is_normalization, down_rate)
