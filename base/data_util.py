@@ -130,10 +130,12 @@ def detect_intersection_ids(df_train, df_test):
 	
 	return intersection_count == len(test_ids)
 
-def get_arrays_lengths(a, EOS_ID):
-	lens = np.argwhere(a==EOS_ID)[:,1] + 1
-	if EOS_ID is None:
+def get_arrays_lengths(a, PAD_ID):
+	lens = 0
+	if PAD_ID is None:
 		lens = get_sequence_lengths(a)
+	else:
+		lens = np.sum(a != PAD_ID, axis=1)
 	return lens
 	
 
