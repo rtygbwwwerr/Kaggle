@@ -1079,7 +1079,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 			decoder_target = paded_decoder_inputs[:, :max_decoder_time]
 
 			decoder_eos = tf.one_hot(self.get_input('Y_lenghts'), depth=max_decoder_time,
-									 on_value=1, off_value=self._PAD,
+									 on_value=self._EOS, off_value=self._PAD,
 									 dtype=tf.int32)
 			decoder_target += decoder_eos
 
