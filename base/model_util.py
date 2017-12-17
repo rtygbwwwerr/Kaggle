@@ -10,6 +10,7 @@ from base.config_util import Vocab
 
 
 
+
 def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope=10000):
 	chars = list('0123456789+')
 	dic_w2i = {Vocab.pad_flg:0, Vocab.start_flg:1, Vocab.end_flg:2, Vocab.unk_flg:3}
@@ -25,15 +26,19 @@ def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope
 			ids.append(voc.w2i(s))
 		return ids
 	
-	def gen_data(num):
+	def gen_data(num, add_start_end=False):
 		p = np.random.randint(scope, size=(num, 2))
-		arg = map(lambda x:[voc.start_flg_index] + int2ids(x[0]) + [voc.w2i('+')] + int2ids(x[1]) + [voc.end_flg_index], p)
+		arg = None
+		sum = None
+		if add_start_end:
+			arg = map(lambda x:[voc.start_flg_index] + int2ids(x[0]) + [voc.w2i('+')] + int2ids(x[1]) + [voc.end_flg_index], p)
+			sum = map(lambda x:[voc.start_flg_index] + int2ids(x[0]+x[1]) + [voc.end_flg_index], p)
+		else:
+			arg = map(lambda x:int2ids(x[0]) + [voc.w2i('+')] + int2ids(x[1]), p)
+			sum = map(lambda x:int2ids(x[0]+x[1]), p)
 # 		arg_lens = data_util.get_sequence_lengths(arg)
 		arg = sequence.pad_sequences(arg, dtype=np.int32, padding='post', value=0)
 		arg = np.reshape(arg, arg.shape+(1,))
-		
-		sum = map(lambda x:[voc.start_flg_index] + int2ids(x[0]+x[1]) + [voc.end_flg_index], p)
-		
 # 		sum_lens = data_util.get_sequence_lengths(sum)
 		sum = sequence.pad_sequences(sum, dtype=np.int32, padding='post', value=0)
 		
@@ -48,29 +53,30 @@ def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope
 	
 	
 	
-def interpret(i2str, ids, eos_id=-1, join_string=' '):
+def interpret(voc, ids, join_string=' '):
 	real_ids = []
 	for _id in ids:
-		if _id != eos_id:
-			real_ids.append(_id)
-		else:
+		if _id == voc.end_flg_index:
 			break
+		elif _id != voc.pad_flg_index:
+			real_ids.append(_id)
+			
 
-	return join_string.join(i2str(ri) for ri in real_ids)
+	return join_string.join(voc.i2w(ri) for ri in real_ids)
 
-def eval_result(i2str, pad_flg, input_ids, output_ids, infer_output_ids, step, batch_size, print_detil=True):
+def eval_result(voc, input_ids, output_ids, infer_output_ids, step, batch_size, print_detil=True):
 	right, wrong = 0.0, 0.0
 	
 	infos = []
-	print infer_output_ids.shape
+# 	print infer_output_ids.shape
 	infer_output_ids = infer_output_ids
 	for i in range(batch_size):
 		input_sequence = '<DATA>'
 		if input_ids is not None:
-			input_sequence = ' '.join(interpret(i2str, input_ids[i]).replace(pad_flg, '').split())
+			input_sequence = interpret(voc, input_ids[i])
 		
-		output_sequence = ' '.join(interpret(i2str, output_ids[i]).replace(pad_flg, '').split())
-		infer_output_sequence = interpret(i2str, infer_output_ids[i])
+		output_sequence = interpret(voc, output_ids[i])
+		infer_output_sequence = interpret(voc, infer_output_ids[i])
 		info = 'EVAL:{}==>{} -> {} (Real: {})'.format(step * batch_size + i, input_sequence, infer_output_sequence, output_sequence)
 		try:
 			if output_sequence.strip() == infer_output_sequence.strip():
@@ -87,16 +93,16 @@ def eval_result(i2str, pad_flg, input_ids, output_ids, infer_output_ids, step, b
 # 	print "Right: {}, Wrong: {}, Accuracy: {}%".format(right, wrong, 100*right/float(right + wrong))
 	return right, wrong, infos
 	
-def valid_data(sess, model, voc, X_valid, Y_valid, EOS_ID_X, EOS_ID_Y, batch_size, gen_func, batch_num=0, **args):
+def valid_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, gen_func, batch_num=0, **args):
 	right = 0
 	wrong = 0
 	val_ret = []
-	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, EOS_ID_X, EOS_ID_Y, batch_size, False, **args)):
+	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, False, **args)):
 		if (batch_num > 0) and (step > batch_num):
 			break
 		values = model.run_ops(sess, data_dict, names=["search_output"])
 # 		print "acc{}:{}".format(step, values['acc'])
-		now_right, now_wrong, infos = eval_result(voc.i2w, voc.pad_flg, None, data_dict['Y'], values['search_output'], step, batch_size)
+		now_right, now_wrong, infos = eval_result(voc, None, data_dict['Y'], values['search_output'], step, batch_size)
 		right += now_right
 		wrong += now_wrong
 		val_ret.extend(infos)
@@ -111,7 +117,7 @@ def slice_array(arr, indeies):
 		arr = arr[indeies, :]
 	return arr
 
-def gen_tf_sparse_data(X, y, EOS_ID_X, EOS_ID_Y, batch_size=128, shuffle=True, **args):
+def gen_tf_sparse_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size=128, shuffle=True, **args):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
 	counter = 0
 	sample_index = np.arange(X.shape[0])
@@ -135,7 +141,7 @@ def gen_tf_sparse_data(X, y, EOS_ID_X, EOS_ID_Y, batch_size=128, shuffle=True, *
 		if (counter == number_of_batches):
 			break
 		
-def gen_tf_dense_data(X, y, EOS_ID_X, EOS_ID_Y, batch_size, shuffle, **args):
+def gen_tf_dense_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size, shuffle, **args):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
 	counter = 0
 	sample_index = np.arange(X.shape[0])
@@ -148,9 +154,11 @@ def gen_tf_dense_data(X, y, EOS_ID_X, EOS_ID_Y, batch_size, shuffle, **args):
 		X_batch = slice_array(X, batch_index)
 		y_batch = slice_array(y, batch_index)
 		data_dict['X'] = X_batch
-		data_dict['X_lenghts'] = data_util.get_arrays_lengths(X_batch, EOS_ID_X)
+		data_dict['X_lenghts'] = data_util.get_arrays_lengths(X_batch, PAD_ID_X)
 		data_dict['Y'] = y_batch
-		data_dict['Y_lenghts'] = data_util.get_arrays_lengths(y_batch, EOS_ID_Y)
+		data_dict['Y_lenghts'] = data_util.get_arrays_lengths(y_batch, PAD_ID_Y)
+		
+		
 		for k, v in args.iteritems():
 			data_dict[k] = v
 			
@@ -160,7 +168,7 @@ def gen_tf_dense_data(X, y, EOS_ID_X, EOS_ID_Y, batch_size, shuffle, **args):
 			break
 	
 	
-def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, EOS_ID_X, EOS_ID_Y, 
+def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, 
 				data_gen_func=gen_tf_sparse_data, batch_size=128, max_epoch=50, **args):
 	step_nums = int(math.ceil(x_train.shape[0] / float(batch_size)))
 	print "Total epoch:{0}, step num of each epoch:{1}".format(max_epoch, step_nums)
@@ -172,7 +180,7 @@ def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, EOS_ID_X, EO
 			print "Epoch {}".format(epoch)
 			epoch_loss = 0.
 			epoch_acc = 0.
-			for step, data_dict in enumerate(data_gen_func(x_train, y_train, EOS_ID_X, EOS_ID_Y, batch_size, True, **args)):
+			for step, data_dict in enumerate(data_gen_func(x_train, y_train, PAD_ID_X, PAD_ID_Y, batch_size, True, **args)):
 	
 	# 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
 	
@@ -196,17 +204,17 @@ def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, EOS_ID_X, EO
 				
 				
 				if (print_step) % 300 == 0:
-					val_ret, mini_acc = valid_data(sess, model, vocab, x_valid, y_valid, EOS_ID_X, EOS_ID_Y, batch_size, data_gen_func, 1, **args)
+					val_ret, mini_acc = valid_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1, **args)
 # 					save_valid_ret(print_step, "mini_valid_ret", val_ret)
 
 					
 			epoch_loss = epoch_loss / float(step_nums)
 			epoch_acc = epoch_acc / float(step_nums)
 			
-			val_ret, acc_val = valid_data(sess, model, vocab, x_valid, y_valid, EOS_ID_X, EOS_ID_Y, batch_size, data_gen_func, **args)
+			val_ret, acc_val = valid_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, **args)
 	# 		valid_summary_writer.add_summary(summaries_valid, epoch)
 
-			print "Val Accuracy: {:.2}%".format(acc_val)
+# 			print "Val Accuracy: {}%".format(acc_val)
 			
 if __name__ == '__main__':
 	gen_fake_plus_sequence_data(10, 2, 10)
