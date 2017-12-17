@@ -216,7 +216,7 @@ def save_valid_ret(index, name, val_ret):
 
 def train_tf_model(
 			data_gen_func, vocab, sess, model, log_dir, ret_file_head, 
-			X_train, Y_train, X_valid, Y_valid, EOS_ID_X, EOS_ID_Y, 
+			X_train, Y_train, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, 
 			initial_epoch, start_step, batch_size=128, nb_epoch = 100):
 
 # 	num_train_examples = X_train.shape[0]
@@ -239,7 +239,7 @@ def train_tf_model(
 		epoch_loss = 0.
 		epoch_acc = 0.
 		epoch_acc_seq = 0.
-		for step, data_dict in enumerate(data_gen_func(X_train, Y_train, EOS_ID_X, EOS_ID_Y, batch_size, True, 
+		for step, data_dict in enumerate(data_gen_func(X_train, Y_train, PAD_ID_X, PAD_ID_Y, batch_size, True, 
 													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor, 
 													keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)):
 
@@ -266,7 +266,7 @@ def train_tf_model(
 			
 			
 			if (print_step) % 300 == 0:
-				val_ret, mini_acc = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, EOS_ID_X, EOS_ID_Y, batch_size, data_gen_func, 1,
+				val_ret, mini_acc = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1,
 														 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
 														 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
 				save_valid_ret(print_step, "mini_valid_ret", val_ret)
@@ -283,7 +283,7 @@ def train_tf_model(
 		epoch_loss = epoch_loss / float(step_nums)
 		epoch_acc = epoch_acc / float(step_nums)
 		
-		val_ret, acc_val = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, EOS_ID_X, EOS_ID_Y, batch_size, data_gen_func,
+		val_ret, acc_val = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func,
 												 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
 												 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
 # 		valid_summary_writer.add_summary(summaries_valid, epoch)
@@ -397,7 +397,7 @@ def experiment_tf_seq2seq(data_gen_func, train_func=train_tf_model, model_func=m
 					embedding_dim=cfg.embedding_size, 
 					vocab_size=cfg.voc_word.size + 1, 
 					input_feature_num=x_train[0].shape[1],
-					max_decode_iter_size=cfg.max_output_len_w + 5,
+					max_decode_iter_size=cfg.max_output_len_c + 1,
 					PAD = cfg.voc_word.pad_flg_index,
 					START = cfg.voc_word.start_flg_index,
 					EOS = cfg.voc_word.end_flg_index,
@@ -414,7 +414,7 @@ def experiment_tf_seq2seq(data_gen_func, train_func=train_tf_model, model_func=m
 	
 		ret_file_head = "{}_{}".format(file_head, file_type)
 		train_func(data_gen_func, cfg.get_vocab(label_name), sess, model, log_dir, ret_file_head, 
-			x_train, y_train, x_valid, y_valid, None, cfg.get_vocab(label_name).end_flg_index,
+			x_train, y_train, x_valid, y_valid, None, cfg.get_vocab(label_name).pad_flg_index,
 			initial_epoch, start_step, batch_size, nb_epoch)
 
 def detect_file(filename):
@@ -475,13 +475,13 @@ def test_attention_model():
 			embedding_dim=cfg.embedding_size, 
 			vocab_size=vocab.size + 1, 
 			input_feature_num=x_train.shape[2],
-			max_decode_iter_size=5,
+			max_decode_iter_size=3,
 			PAD = vocab.pad_flg_index,
 			START = vocab.start_flg_index,
 			EOS = vocab.end_flg_index,
 			)
 	
-	model_util.test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, EOS_ID_X=vocab.end_flg_index, EOS_ID_Y=vocab.end_flg_index, 
+	model_util.test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X=None, PAD_ID_Y=None, 
 							batch_size=batch_size, data_gen_func=model_util.gen_tf_dense_data, max_epoch=10000, 
 							init_lr_rate=1.0, decay_step=5000, decay_factor=0.85, keep_output_rate=1.0, sampling_probability=0.0)
 	
@@ -538,7 +538,7 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=50, input_num=0, 
 # 					file_head="tf_ctc_seq2seq", file_type=ftype, pre_train_model_prefix=None)
 	
-	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_w',
+	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
 					batch_size=256, nb_epoch=150, input_num=0, 
 					file_head="tf_att_seq2seq", file_type=ftype, pre_train_model_prefix=None, is_debug=False)
 # 	run_submission(file_type=ftype, model_path='../checkpoints/keras_cnn_weights.42-0.0110-0.9960-0.0048-0.9987.hdf5')
