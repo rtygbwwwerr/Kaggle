@@ -408,16 +408,17 @@ class Seq2SeqBase(object):
 # 				print 'Unexpected argument {} in input dictionary!'.format(key)
 		return feed_dict
 
-	def _build_accuracy(self, decoded, targets):
+	def _build_accuracy(self, decoded, targets, decoder_lengths):
 		
 		if isinstance(targets, tf.SparseTensor):
 			targets = tf.sparse_tensor_to_dense(targets, default_value=-1)
 			
 		cut_len = tf.minimum(tf.shape(decoded)[1], tf.shape(targets)[1])
-		decoder_lengths = self.get_input('Y_lenghts')
+	
 		
 		with tf.variable_scope('accuracy_target'):
-			flg = tf.equal(decoded[:, 0:cut_len],  targets[:, 0:cut_len])
+# 			flg = tf.equal(decoded[:, 0:cut_len],  targets[:, 0:cut_len])
+			flg = tf.equal(decoded, targets[:, 0:tf.shape(decoded)[1]])
 			flg = tf.cast(flg, dtype=tf.float32)
 			total_corrected = tf.reduce_sum(flg)
 			acc = tf.divide(total_corrected, tf.cast(tf.reduce_sum(decoder_lengths), dtype=tf.float32), name='acc')
@@ -472,6 +473,26 @@ class Seq2SeqBase(object):
 	
 	def set_input(self, name, value):
 		self._inputs[name] = value
+		
+	def _add_eos(self, sequence, seq_lengths):
+		
+		batch_size = tf.shape(sequence)[0]
+		pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
+		paded_sequence = tf.concat([sequence, pads], 1)
+		max_decoder_time = tf.reduce_max(seq_lengths) + 1
+		eos_sequence = paded_sequence[:, :max_decoder_time]
+
+		eos = tf.one_hot(seq_lengths, depth=max_decoder_time,
+								 on_value=self._EOS, off_value=self._PAD,
+								 dtype=tf.int32)
+		eos_sequence += eos
+		return eos_sequence
+	
+	def _add_goes(self, sequence):
+		batch_size = tf.shape(sequence)[0]
+		goes = tf.ones([batch_size, 1], dtype=tf.int32) * self._START
+		goes_sequence = tf.concat([goes, sequence], 1)
+		return goes_sequence
 	
 	def _build_graph(self, num_features):
 		self._build_inputs(num_features)
@@ -488,7 +509,7 @@ class Seq2SeqBase(object):
 		
 		self._add_op(self._build_train_step(self.get_op("loss")), "train_op")
 		
-		accuracy, seq_accuracy = self._build_accuracy(self.get_op("output"), targets)
+		accuracy, seq_accuracy = self._build_accuracy(self.get_op("output"), self._add_eos(targets, self.get_input('Y_lenghts')), self.get_input('Y_lenghts') + 1)
 		self._add_op(accuracy, "acc")
 		self._add_op(seq_accuracy, "seq_acc")
 
