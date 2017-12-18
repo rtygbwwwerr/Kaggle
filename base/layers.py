@@ -395,9 +395,22 @@ class Seq2SeqBase(object):
 			dtype=tf.float32,
 			name='init_lr_rate'
 		)
-
+	def _make_null_array(self, shape, type):
+		val_arr = None
+		if shape is None or len(shape) == 0:
+			val_arr = 0
+		else:
+			arr_shape = [1] * len(shape)
+			val_arr = np.zeros(arr_shape)
+		return val_arr
 	
-	
+	def make_null_feed_dict(self, data_dict):
+		feed_dict = self._make_feed_dict(data_dict)
+		for key, val in self._inputs.iteritems():
+			if key not in data_dict:
+				feed_dict[key] = self._make_null_array(val.shape, val.dtype)
+		return feed_dict
+				
 	def _make_feed_dict(self, data_dict):
 		feed_dict = {}
 		for key in data_dict.keys():
@@ -413,7 +426,7 @@ class Seq2SeqBase(object):
 		if isinstance(targets, tf.SparseTensor):
 			targets = tf.sparse_tensor_to_dense(targets, default_value=-1)
 			
-		cut_len = tf.minimum(tf.shape(decoded)[1], tf.shape(targets)[1])
+# 		cut_len = tf.minimum(tf.shape(decoded)[1], tf.shape(targets)[1])
 	
 		
 		with tf.variable_scope('accuracy_target'):
