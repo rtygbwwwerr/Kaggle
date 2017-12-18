@@ -100,9 +100,9 @@ def valid_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_siz
 	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, False, **args)):
 		if (batch_num > 0) and (step > batch_num):
 			break
-		values = model.run_ops(sess, data_dict, names=["search_output"])
+		values = model.run_ops(sess, data_dict, names=["output"])
 # 		print "acc{}:{}".format(step, values['acc'])
-		now_right, now_wrong, infos = eval_result(voc, None, data_dict['Y'], values['search_output'], step, batch_size)
+		now_right, now_wrong, infos = eval_result(voc, None, data_dict['Y'], values['output'], step, batch_size)
 		right += now_right
 		wrong += now_wrong
 		val_ret.extend(infos)
