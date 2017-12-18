@@ -51,7 +51,36 @@ def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope
 	return voc, x, y, x_v, y_v
 	
 	
-	
+def load_tf_seq2seq_model(sess, model_func, train_data_num, batch_size, model_file_prefix=None, **arg):
+
+	model = model_func(
+			n_encoder_layers = arg['n_encoder_layers'],
+			n_decoder_layers = arg['n_decoder_layers'],
+			encoder_hidden_size=arg['encoder_hidden_size'], 
+			decoder_hidden_size=arg['decoder_hidden_size'], 
+			embedding_dim=arg['embedding_dim'], 
+			vocab_size=arg['vocab_size'], 
+			input_feature_num=arg['input_feature_num'],
+			max_decode_iter_size=arg['max_decode_iter_size'],
+			PAD = arg['pad_flg_index'],
+			START = arg['start_flg_index'],
+			EOS = arg['end_flg_index'],
+			)
+
+	if model_file_prefix is None:
+		start_step = 0
+		initial_epoch = 1
+		sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+	else:
+		fname = model_file_prefix.split('/')[-1]
+		pos_a = fname.find('.')
+		pos_b = fname.find('-')
+		assert (pos_a != -1 and pos_b != -1)
+		initial_epoch = int(fname[pos_a+1:pos_b]) + 1
+		start_step = (initial_epoch - 1) * (train_data_num / batch_size + 1)
+		saver = tf.train.Saver(max_to_keep=100)
+		saver.restore(sess, model_file_prefix)
+	return model, initial_epoch, start_step	
 	
 def interpret(voc, ids, join_string=' '):
 	real_ids = []
@@ -100,9 +129,9 @@ def valid_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_siz
 	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, False, **args)):
 		if (batch_num > 0) and (step > batch_num):
 			break
-		values = model.run_ops(sess, data_dict, names=["output"])
+		values = model.run_ops(sess, data_dict, names=["search_output"])
 # 		print "acc{}:{}".format(step, values['acc'])
-		now_right, now_wrong, infos = eval_result(voc, None, data_dict['Y'], values['output'], step, batch_size)
+		now_right, now_wrong, infos = eval_result(voc, None, data_dict['Y'], values['search_output'], step, batch_size)
 		right += now_right
 		wrong += now_wrong
 		val_ret.extend(infos)
@@ -166,7 +195,28 @@ def gen_tf_dense_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size, shuffle, **args):
 		yield data_dict
 		if (counter == number_of_batches):
 			break
-	
+		
+def gen_tf_dense_test_data(X, PAD_ID_X, batch_size, **args):
+	number_of_batches = np.ceil(X.shape[0]/batch_size)
+	counter = 0
+	sample_index = np.arange(X.shape[0])
+
+	data_dict = {}
+	while True:
+		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+		X_batch = slice_array(X, batch_index)
+
+		data_dict['X'] = X_batch
+		data_dict['X_lenghts'] = data_util.get_arrays_lengths(X_batch, PAD_ID_X)
+		
+		for k, v in args.iteritems():
+			data_dict[k] = v
+			
+		counter += 1
+		yield data_dict
+		if (counter == number_of_batches):
+			break
 	
 def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, 
 				data_gen_func=gen_tf_sparse_data, batch_size=128, max_epoch=50, **args):
