@@ -13,7 +13,7 @@ import shutil
 from tensorflow import keras
 import tensorflow as tf
 from tensorflow.python import debug as tf_debug
-from base.data_seq import NumpySeqData
+from sklearn.cross_validation import train_test_split
 from base import data_util, model_util
 cfg.init ()
 
@@ -24,7 +24,58 @@ def run_submission(file_type="mfcc", model_path='../checkpoints/keras_cnn4_logba
 	model = model_maker_keras.make_cnn1(x[0].shape, cfg.voc_small.size, trainable=False)
 	model.load_weights(model_path)
 	submission(model, x)
+	
+def run_submission_tf(file_type, model_prefix, model_func, data_gen_func, batch_size=256):
+	x = data_process.get_test_data_from_files(filter_trim=file_type)
+	with tf.Session() as sess:
+		model, _, _ = model_util.load_tf_seq2seq_model(sess, model_func, x.shape[0], 
+																	batch_size, model_prefix,
+																	n_encoder_layers=cfg.n_encoder_layers,
+																	n_decoder_layers = cfg.n_decoder_layers,
+																	encoder_hidden_size=cfg.encoder_hidden_size,
+																	decoder_hidden_size=cfg.decoder_hidden_size,
+																	embedding_dim=cfg.embedding_size,
+																	vocab_size=cfg.voc_word.size + 1,
+																	input_feature_num=x[0].shape[1],
+																	max_decode_iter_size=cfg.max_output_len_c + 1,
+																	pad_flg_index = cfg.voc_word.pad_flg_index,
+																	start_flg_index = cfg.voc_word.start_flg_index,
+																	end_flg_index = cfg.voc_word.end_flg_index)
+	for step, data_dict in enumerate(data_gen_func(x, cfg.voc_word.pad_flg_index, batch_size,
+												init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, 
+												decay_factor = cfg.decay_factor, 
+												keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)):
+# 		feed_dict = model.make_null_feed_dict(data_dict)
+		values = model.run_ops(sess, data_dict, names=['search_output'])
 
+
+def covert_ids_to_str(i2w_func, ids):
+	"""
+	Function behaviors
+	1. word in config.POSSIBLE_LABELS, delete <SIL> tags around them and the space inside, like:
+	"<SIL> n o <SIL> -> no"
+	"<SIL> l e f t <SIL> -> four"
+	2. <SIL> sequences, convert to silence:
+	"<SIL> <SIL> <SIL> -> silence"
+	3. otherwise, convert to unknown:
+	"<SIL> f i v e <SIL> -> unknown"
+	"<SIL> f o u r <SIL> -> unknown"
+	
+	
+	Args:
+	i2w_func, i2w function, input id and output respective word or char, ref:config_util.Vocab.i2w()
+	ids, numpy array of word ids, which includes ids <SIL> and common chars, like aforementioned in Function behaviors.
+	
+	
+	Return:
+	converted string
+	"""
+	
+	
+	
+	decode_str = None
+	return decode_str
+		
 def submission(model, x, file = '../data/submission.csv'):
 	
 	paths = data_process.gen_input_paths("../data/test/audio/", ".wav")
@@ -245,7 +296,7 @@ def train_tf_model(
 													keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)):
 # 			print g_step
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-			values = model.run_ops(sess, data_dict, names=["train_op", 'output', 'summary', 'global_step', "loss", "acc", "seq_acc", "sp"])
+			values = model.run_ops(sess, data_dict, names=["train_op", 'output', 'search_output','summary', 'global_step', "loss", "acc", "seq_acc", "sp"])
 			
 			g_step = values['global_step']
 			print_step = step + 1
@@ -267,7 +318,7 @@ def train_tf_model(
 			train_summary_writer.add_summary(values['summary'], g_step)
 			
 			if print_step % 100 == 0:
-				now_right, now_wrong, _ = model_util.eval_result(vocab, None, data_dict['Y'], values['output'], 0, batch_size)
+				now_right, now_wrong, _ = model_util.eval_result(vocab, None, data_dict['Y'], values['search_output'], 0, batch_size)
 				acc = 100*now_right/float(now_right + now_wrong)
 				print "Current Right: {}, Wrong: {}, Accuracy: {}%".format(now_right, now_wrong, acc)
 # 			if (print_step) % 300 == 0:
@@ -308,8 +359,27 @@ def restore_tf_model(model_prefix, sess, input_shape, model_func, is_train=True)
 	saver.restore(sess, model_prefix)
 
 	# Create model.
-	model = model_func(cfg.CLS_NUM, input_shape[0], input_shape[1], input_shape[2], is_train)
+	model = model_func(
+						n_encoder_layers = cfg.n_encoder_layers,
+						n_decoder_layers = cfg.n_decoder_layers,
+# 						dropout = cfg.ed_dropout,
+						encoder_hidden_size=cfg.encoder_hidden_size, 
+						decoder_hidden_size=cfg.decoder_hidden_size, 
+						batch_size=batch_size, 
+						embedding_dim=cfg.embedding_size, 
+						vocab_size=cfg.vocab_size, 
+						max_decode_iter_size=cfg.max_output_len,
+						PAD = cfg.pad_flg_index,
+						START = cfg.start_flg_index,
+						EOS = cfg.end_flg_index,
+						is_training = is_train,
+						is_restored = True,
+						)
 	
+	# Restore parameters in Model object with restored value.
+	model.restore_from_session(sess)
+
+	return model
 	# Restore parameters in Model object with restored value.
 	model.restore_from_session(sess)
 
@@ -346,6 +416,8 @@ def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_mak
 	
 	x_train, y_train, x_valid, y_valid = data_process.data_prepare(input_num, file_head, file_type, label_name)
 	
+
+	
 	#add new dimension for channels
 # 	np.savetxt("../data/X_train.txt", X_train.astype(np.int32), '%d')
 # 	np.savetxt("../data/Y_train.txt", Y_train.astype(np.int32), '%d')
@@ -375,53 +447,39 @@ def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_mak
 			x_train, y_train, x_valid, y_valid, 
 			initial_epoch, start_step, batch_size, nb_epoch)
 
+
+
 def experiment_tf_seq2seq(data_gen_func, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_w', 
 					batch_size=256, nb_epoch=50, input_num=0, 
 					file_head="tf_seq2seq", file_type="mfcc", pre_train_model_prefix=None, is_debug=False):
 	
 	x_train, y_train, x_valid, y_valid = data_process.data_prepare(input_num, file_head, file_type, label_name)
 	
+	x_train, x_valid, y_train, y_valid = train_test_split(x_train, y_train, test_size=batch_size*20, random_state=0)
+
 	#add new dimension for channels
 # 	np.savetxt("../data/X_train.txt", x_train.astype(np.int32), '%d')
 	np.savetxt("../data/Y_train.txt", y_train.astype(np.int32), '%d')
 	np.savetxt("../data/Y_valid.txt", y_valid.astype(np.int32), '%d')
 # 	x_train = x_train[:, np.newaxis]
 # 	x_valid = x_valid[:, np.newaxis]
-	
-	
 	with tf.Session() as sess:
-		# Create model or load pre-trained model.
 		if is_debug:
 			sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-
-		model = model_func(
-				n_encoder_layers = cfg.n_encoder_layers,
-				n_decoder_layers = cfg.n_decoder_layers,
-#				dropout = cfg.ed_dropout,
-				encoder_hidden_size=cfg.encoder_hidden_size, 
-				decoder_hidden_size=cfg.decoder_hidden_size, 
-				embedding_dim=cfg.embedding_size, 
-				vocab_size=cfg.voc_word.size + 1, 
-				input_feature_num=x_train[0].shape[1],
-				max_decode_iter_size=cfg.max_output_len_c + 1,
-				PAD = cfg.voc_word.pad_flg_index,
-				START = cfg.voc_word.start_flg_index,
-				EOS = cfg.voc_word.end_flg_index,
-				)
-
-		if pre_train_model_prefix is None:
-			start_step = 0
-			initial_epoch = 1
-			sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
-		else:
-			fname = pre_train_model_prefix.split('/')[-1]
-			pos_a = fname.find('.')
-			pos_b = fname.find('-')
-			assert (pos_a != -1 and pos_b != -1)
-			initial_epoch = int(fname[pos_a+1:pos_b]) + 1
-			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
-			saver = tf.train.Saver(max_to_keep=100)
-			saver.restore(sess, pre_train_model_prefix)
+		model, initial_epoch, start_step = model_util.load_tf_seq2seq_model(sess, model_func, x_train.shape[0], 
+																	batch_size, pre_train_model_prefix,
+																	n_encoder_layers=cfg.n_encoder_layers,
+																	n_decoder_layers = cfg.n_decoder_layers,
+																	encoder_hidden_size=cfg.encoder_hidden_size,
+																	decoder_hidden_size=cfg.decoder_hidden_size,
+																	embedding_dim=cfg.embedding_size,
+																	vocab_size=cfg.voc_word.size + 1,
+																	input_feature_num=x_train[0].shape[1],
+																	max_decode_iter_size=cfg.max_output_len_c + 1,
+																	pad_flg_index = cfg.voc_word.pad_flg_index,
+																	start_flg_index = cfg.voc_word.start_flg_index,
+																	end_flg_index = cfg.voc_word.end_flg_index)
+	
 			
 		log_dir = '../logs/tf/'
 		ret_file_head = "{}_{}".format(file_head, file_type)
@@ -527,10 +585,6 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	
 
 if __name__ == "__main__":
-#	data_process.gen_train_feature("logspecgram", True, 0.5, "../data/")
-#	data_process.gen_test_feature("logspecgram", True, 0.5)
-#	data_process.gen_silence_data(400)
-#	data_process.gen_ext_feature(0, "logspecgram", True, 0.5)
 # 	test_attention_model()
 # 	test_ctc_model()
 # 	data_process.test()
@@ -542,7 +596,7 @@ if __name__ == "__main__":
 	ftype = "logspecgram_8000"
 # 	ftype = 'mfbank_16000'
 # 	ftype = "logbank"
-# 	ftype = "mfcc_16000"
+	ftype = "mfcc_16000"
 # 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1,
 # 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype)
 # 	experiment_tf(train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y',
@@ -554,13 +608,16 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=50, input_num=0, 
 # 					file_head="tf_ctc_seq2seq", file_type=ftype, pre_train_model_prefix=None)
 	
-	experiment_tf_seq2seq(
-			data_gen_func=model_util.gen_tf_dense_data,
-			train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq,
-			label_name='y_c', batch_size=256, nb_epoch=1, input_num=10000, 
-			file_head="tf_att_seq2seq", file_type=ftype,
-			pre_train_model_prefix='../checkpoints/tf/tf_att_seq2seq_logspecgram_8000.01-0.85584-0.06504-0.27975.ckpt-39',
-			is_debug=False)
+# 	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
+# 					batch_size=256, nb_epoch=150, input_num=0, 
+# 					file_head="tf_att_seq2seq", 
+# 					file_type=ftype, pre_train_model_prefix="../checkpoints/tf/tf_att_seq2seq_mfcc_16000.27-0.05072-0.96616-0.97383.ckpt-7506", is_debug=False)
+	
+	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
+					batch_size=256, nb_epoch=300, input_num=0, 
+					file_head="tf_att_seq2seq", 
+					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
+	
 # 	run_submission(file_type=ftype, model_path='../checkpoints/keras_cnn_weights.42-0.0110-0.9960-0.0048-0.9987.hdf5')
 # 	detect_file('../data/test/audio/clip_0667aa08a.wav')
 
