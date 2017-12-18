@@ -100,7 +100,7 @@ def capsule_classify_generator(X, y, batch_size=128, shuffle=True):
 		
 
 
-def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, initial_epoch=0, epochs=3):
+def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 3):
 	
 
 	
@@ -116,8 +116,7 @@ def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, 
 # 	samples_per_epoch = batch_size * 2
 	model.fit_generator(generator=classify_generator(X_train, Y_train, batch_size, True), 
 	                    samples_per_epoch = samples_per_epoch, 
-	                    epochs = epochs,
-	                    initial_epoch = initial_epoch,
+	                    nb_epoch = nb_epoch, 
 	                    verbose=1,
 	                    validation_data = (X_valid, Y_valid),
 # 			    	    validation_data=sparse_generator(X_valid, Y_valid, batch_size, False), 
@@ -235,6 +234,7 @@ def train_tf_model(
 	train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
 	g_step = start_step
 	print "Training Start!,init step:{}".format(g_step)
+
 	for epoch in range(initial_epoch, max_epoch):
 		print "Epoch {}".format(epoch)
 		epoch_loss = 0.
@@ -242,13 +242,14 @@ def train_tf_model(
 		epoch_acc_seq = 0.
 		for step, data_dict in enumerate(data_gen_func(X_train, Y_train, PAD_ID_X, PAD_ID_Y, batch_size, True, 
 													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor, 
-													keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)):
-
+													keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)):
+# 			print g_step
 # 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
-			values = model.run_ops(sess, data_dict, names=["train_op", 'summary', 'global_step', "loss", "acc", "seq_acc"])
+			values = model.run_ops(sess, data_dict, names=["train_op", 'output', 'summary', 'global_step', "loss", "acc", "seq_acc", "sp"])
 			
 			g_step = values['global_step']
 			print_step = step + 1
+	
 			info_head= "Epoch:{:3d}/{:3d}, g_Step:{:8d}, Step:{:6d}/{:6d} ... ".format(epoch, max_epoch, g_step, step + 1, step_nums)
 			info_vals = []
 			for name, value in values.iteritems():
@@ -261,29 +262,32 @@ def train_tf_model(
 			print info_head + info_vals
 			epoch_loss += values['loss']
 			epoch_acc += values['acc']
-# 			epoch_acc_seq += values[5]
+			epoch_acc_seq += values["seq_acc"]
 
 			train_summary_writer.add_summary(values['summary'], g_step)
 			
-			
-			if (print_step) % 300 == 0:
-				val_ret, mini_acc = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1,
-														 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
-														 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
-				save_valid_ret(print_step, "mini_valid_ret", val_ret)
-				print "Mini-test Accuracy: {:.2}%".format(mini_acc)
-				path = "../checkpoints/mini/{prefix}.{epoch_id}_{id:02d}-{val_acc:.5f}.ckpt".format(
-																								prefix="mini",
-																							    epoch_id=epoch,
-																							    id=print_step,
-																							    val_acc=mini_acc,
-																							    )
-				saved_path = saver.save(sess, path, global_step=print_step)
-				print "saved check file:" + saved_path
+			if print_step % 100 == 0:
+				now_right, now_wrong, _ = model_util.eval_result(vocab, None, data_dict['Y'], values['output'], 0, batch_size)
+				acc = 100*now_right/float(now_right + now_wrong)
+				print "Current Right: {}, Wrong: {}, Accuracy: {}%".format(now_right, now_wrong, acc)
+# 			if (print_step) % 300 == 0:
+# 				val_ret, mini_acc = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1,
+# 														 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
+# 														 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)
+# 				save_valid_ret(print_step, "mini_valid_ret", val_ret)
+# 				print "Mini-test Accuracy: {:.2}%".format(mini_acc)
+# 				path = "../checkpoints/mini/{prefix}.{epoch_id}_{id:02d}-{val_acc:.5f}.ckpt".format(
+# 																								prefix="mini",
+# 																							    epoch_id=epoch,
+# 																							    id=print_step,
+# 																							    val_acc=mini_acc,
+# 																							    )
+# 				saved_path = saver.save(sess, path, global_step=print_step)
+# 				print "saved check file:" + saved_path
 				
 		epoch_loss = epoch_loss / float(step_nums)
 		epoch_acc = epoch_acc / float(step_nums)
-		
+		epoch_acc_seq = epoch_acc_seq / float(step_nums)
 		val_ret, acc_val = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func,
 												 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
 												 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
@@ -291,12 +295,12 @@ def train_tf_model(
 		path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
 																					    epoch_id=epoch,
 																					    loss=epoch_loss,
-																					    acc=epoch_acc,
-																					    val_acc=acc_val,
+																					    acc=epoch_acc_seq,
+																					    val_acc=(acc_val/100.0),
 																					    )
 		saved_path = saver.save(sess, path, global_step=model.get_op('global_step'))
 		print "saved check file:" + saved_path
-		print "Val Accuracy: {:.2}%".format(acc_val)
+# 		print "Val Accuracy: {:.2}%".format(acc_val)
 		
 def restore_tf_model(model_prefix, sess, input_shape, model_func, is_train=True):
 	# Load graph file.
@@ -489,7 +493,7 @@ def test_attention_model():
 	
 	model_util.test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X=None, PAD_ID_Y=None, 
 							batch_size=batch_size, data_gen_func=model_util.gen_tf_dense_data, max_epoch=10000, 
-							init_lr_rate=1.0, decay_step=5000, decay_factor=0.85, keep_output_rate=1.0, sampling_probability=0.0)
+							init_lr_rate=1.0, decay_step=5000, decay_factor=0.85, keep_output_rate=1.0, sampling_probability=0.0001)
 	
 def data_analysis(x_train, y_train, x_valid, y_valid):
 	
@@ -521,11 +525,6 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	
 
 if __name__ == "__main__":
-#	data_process.gen_train_feature("logspecgram", True, 0.5, "../data/")
-#	data_process.gen_test_feature("logspecgram", True, 0.5)
-#	data_process.gen_silence_data(400)
-#
-#	data_process.gen_ext_feature(0, "logspecgram", True, 0.5)
 # 	test_attention_model()
 # 	test_ctc_model()
 # 	data_process.test()
@@ -539,8 +538,7 @@ if __name__ == "__main__":
 # 	ftype = "logbank"
 # 	ftype = "mfcc_16000"
 # 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1,
-# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype,
-# 					 pre_train_model='../checkpoints/keras_cnn_weights.19-0.0103-0.9965-0.0152-0.9949.hdf5')
+# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype)
 # 	experiment_tf(train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y',
 # 					batch_size=64, nb_epoch=50, input_num=0, 
 # 					file_head="tf_cap3", file_type=ftype, pre_train_model_prefix=None)
