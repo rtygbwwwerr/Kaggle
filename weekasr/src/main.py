@@ -393,39 +393,41 @@ def experiment_tf_seq2seq(data_gen_func, train_func=train_tf_model, model_func=m
 		# Create model or load pre-trained model.
 		if is_debug:
 			sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-		model = None
-		start_step = 0
-		if pre_train_model_prefix is None:
-# 			model = model_func(cfg.CLS_NUM, x_train.shape[1], x_train.shape[2], batch_size, True)
-			
-			model = model_func(
-					n_encoder_layers = cfg.n_encoder_layers,
-					n_decoder_layers = cfg.n_decoder_layers,
-# 					dropout = cfg.ed_dropout,
-					encoder_hidden_size=cfg.encoder_hidden_size, 
-					decoder_hidden_size=cfg.decoder_hidden_size, 
-					embedding_dim=cfg.embedding_size, 
-					vocab_size=cfg.voc_word.size + 1, 
-					input_feature_num=x_train[0].shape[1],
-					max_decode_iter_size=cfg.max_output_len_c + 1,
-					PAD = cfg.voc_word.pad_flg_index,
-					START = cfg.voc_word.start_flg_index,
-					EOS = cfg.voc_word.end_flg_index,
-					)
 
+		model = model_func(
+				n_encoder_layers = cfg.n_encoder_layers,
+				n_decoder_layers = cfg.n_decoder_layers,
+#				dropout = cfg.ed_dropout,
+				encoder_hidden_size=cfg.encoder_hidden_size, 
+				decoder_hidden_size=cfg.decoder_hidden_size, 
+				embedding_dim=cfg.embedding_size, 
+				vocab_size=cfg.voc_word.size + 1, 
+				input_feature_num=x_train[0].shape[1],
+				max_decode_iter_size=cfg.max_output_len_c + 1,
+				PAD = cfg.voc_word.pad_flg_index,
+				START = cfg.voc_word.start_flg_index,
+				EOS = cfg.voc_word.end_flg_index,
+				)
+
+		if pre_train_model_prefix is None:
+			start_step = 0
 			initial_epoch = 1
 			sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 		else:
-			initial_epoch = 0
+			fname = pre_train_model_prefix.split('/')[-1]
+			pos_a = fname.find('.')
+			pos_b = fname.find('-')
+			assert (pos_a != -1 and pos_b != -1)
+			initial_epoch = int(fname[pos_a+1:pos_b]) + 1
 			start_step = (initial_epoch - 1) * (x_train.shape[0] / batch_size + 1)
-			model = restore_tf_model(pre_train_model_prefix, sess, x_train.shape, model_func)
+			saver = tf.train.Saver(max_to_keep=100)
+			saver.restore(sess, pre_train_model_prefix)
 			
 		log_dir = '../logs/tf/'
-	
 		ret_file_head = "{}_{}".format(file_head, file_type)
 		train_func(data_gen_func, cfg.get_vocab(label_name), sess, model, log_dir, ret_file_head, 
 			x_train, y_train, x_valid, y_valid, None, cfg.get_vocab(label_name).pad_flg_index,
-			initial_epoch, start_step, batch_size, nb_epoch)
+			initial_epoch, start_step, batch_size, initial_epoch + nb_epoch)
 
 def detect_file(filename):
 # 	filename = '/Users/user/wav-sample.wav'
@@ -525,6 +527,10 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	
 
 if __name__ == "__main__":
+#	data_process.gen_train_feature("logspecgram", True, 0.5, "../data/")
+#	data_process.gen_test_feature("logspecgram", True, 0.5)
+#	data_process.gen_silence_data(400)
+#	data_process.gen_ext_feature(0, "logspecgram", True, 0.5)
 # 	test_attention_model()
 # 	test_ctc_model()
 # 	data_process.test()
@@ -548,9 +554,13 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=50, input_num=0, 
 # 					file_head="tf_ctc_seq2seq", file_type=ftype, pre_train_model_prefix=None)
 	
-	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
-					batch_size=256, nb_epoch=150, input_num=0, 
-					file_head="tf_att_seq2seq", file_type=ftype, pre_train_model_prefix=None, is_debug=False)
+	experiment_tf_seq2seq(
+			data_gen_func=model_util.gen_tf_dense_data,
+			train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq,
+			label_name='y_c', batch_size=256, nb_epoch=1, input_num=10000, 
+			file_head="tf_att_seq2seq", file_type=ftype,
+			pre_train_model_prefix='../checkpoints/tf/tf_att_seq2seq_logspecgram_8000.01-0.85584-0.06504-0.27975.ckpt-39',
+			is_debug=False)
 # 	run_submission(file_type=ftype, model_path='../checkpoints/keras_cnn_weights.42-0.0110-0.9960-0.0048-0.9987.hdf5')
 # 	detect_file('../data/test/audio/clip_0667aa08a.wav')
 
