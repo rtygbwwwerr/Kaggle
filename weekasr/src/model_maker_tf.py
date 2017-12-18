@@ -1065,23 +1065,25 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 		
 		self.set_input('decay_factor', tf.placeholder(dtype=tf.float32, name='decay_factor'))
 		self.set_input('keep_output_rate', tf.placeholder(dtype=tf.float32, name='keep_output_rate'))
-		self.set_input('sampling_probability', tf.placeholder(dtype=tf.float32, shape=(), name='sampling_probability'))
+		self.set_input('sampling_probability', tf.placeholder(dtype=tf.float32, name='sampling_probability'))
+		
 
 		
 	def _build_loss(self, logits, targets):
 		with tf.variable_scope('loss_target'):
 			#build decoder output, with appropriate padding and mask
-			batch_size = tf.shape(targets)[0]
-			pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
-			paded_decoder_inputs = tf.concat([targets, pads], 1)
+# 			batch_size = tf.shape(targets)[0]
+# 			pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
+# 			paded_decoder_inputs = tf.concat([targets, pads], 1)
+# 			max_decoder_time = tf.reduce_max(self.get_input('Y_lenghts')) + 1
+# # 			max_decoder_time = tf.reduce_max(self.get_input('Y_lenghts'))
+# 			decoder_target = paded_decoder_inputs[:, :max_decoder_time]
+# 
+# 			decoder_eos = tf.one_hot(self.get_input('Y_lenghts'), depth=max_decoder_time,
+# 									 on_value=self._EOS, off_value=self._PAD,
+# 									 dtype=tf.int32)
 			max_decoder_time = tf.reduce_max(self.get_input('Y_lenghts')) + 1
-# 			max_decoder_time = tf.reduce_max(self.get_input('Y_lenghts'))
-			decoder_target = paded_decoder_inputs[:, :max_decoder_time]
-
-			decoder_eos = tf.one_hot(self.get_input('Y_lenghts'), depth=max_decoder_time,
-									 on_value=self._EOS, off_value=self._PAD,
-									 dtype=tf.int32)
-			decoder_target += decoder_eos
+			decoder_target = self._add_eos(targets, self.get_input('Y_lenghts'))
 
 			decoder_loss_mask = tf.sequence_mask(self.get_input('Y_lenghts') + 1,
 												 maxlen=max_decoder_time,
@@ -1111,10 +1113,38 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 		
 		decoder_inputs = self.get_input('Y')
 		decoder_lengths = self.get_input('Y_lenghts')
+		self._build_sampling_schedule()
 		encoder_outputs, encoder_final_state = self._build_encoder(encoder_inputs, encoder_lengths)
 		decoder_results = self._build_decoder(encoder_outputs, encoder_final_state, encoder_lengths, decoder_inputs, decoder_lengths)
 		
 		return decoder_results['decoder_outputs'], decoder_results['decoder_result_ids'], decoder_results['beam_decoder_result_ids'][:, :, 0]
+	
+	
+	def _build_sampling_schedule(self, decay_steps=10000, learning_rate=0.9, offest=5.0, staircase=True):
+		global_step = self.get_op("global_step")
+		init_sp = self.get_input('sampling_probability')
+		with tf.variable_scope('sampling_schedule'):
+			sp_prob = tf.cast(global_step, tf.float32) * init_sp
+			sp_prob = tf.minimum(1.0, sp_prob)
+			sp_prob.set_shape(())
+# 		with tf.variable_scope('sampling_schedule'):
+# 			learning_rate = ops.convert_to_tensor(learning_rate, name="learning_rate")
+# 			dtype = learning_rate.dtype
+# 			global_step = math_ops.cast(global_step, dtype)
+# 			decay_steps = math_ops.cast(decay_steps, dtype)
+# 
+# 			p = global_step / decay_steps
+# 			if staircase:
+# 				p = math_ops.floor(p)
+# 			with tf.variable_scope('sigmoid_sampling'):
+# 				sigmoid_op = 1.0 / (1.0 + math_ops.exp(offest + (-learning_rate * p)))
+# 				sigmoid_op = tf.add(sigmoid_op, self._init_sampling_prob)
+# 				sigmoid_op = tf.cond(sigmoid_op > tf.constant(0.00015,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(0.0, dtypes.float32))
+# 				sigmoid_op = tf.cond(sigmoid_op <= tf.constant(0.99,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(1.0, dtypes.float32))
+# 				sp_prob = math_ops.cast(sigmoid_op, dtype)
+# 				sp_prob.set_shape(())
+# 				print sp_prob.get_shape()
+			self._add_op(sp_prob, "sp")
 	
 	def _build_train_step(self, loss):
 		with tf.variable_scope('train'):
@@ -1154,7 +1184,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 		return train_op
 	
 	def _build_summary(self):
-		tf.summary.scalar('sampling_rate', self.get_input('sampling_probability'))
+		tf.summary.scalar('sampling_rate', self.get_op('sp'))
 		tf.summary.scalar('learning_rate', self.get_op('lr'))
 		tf.summary.scalar('loss', self.get_op('loss'))
 		tf.summary.scalar('accuracy', self.get_op('acc'))
@@ -1339,7 +1369,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 				embed_decoder_inputs,
 				decoder_lengths + 1,
 				word_embedding,
-				self.get_input('sampling_probability'),
+				self.get_op('sp'),
 			)
 			
 			decoder = BasicDecoder(
@@ -1808,8 +1838,7 @@ class Seq2SeqModel:
 			out_func = layers_core.Dense(
 				self._vocab_size, use_bias=False)
 
-			goes = tf.ones([batch_size, 1], dtype=tf.int32) * self._START
-			goes_decoder_inputs = tf.concat([goes, decoder_inputs], 1)
+			goes_decoder_inputs = self._add_goes(decoder_inputs)
 			
 			#using teaching force without schedule			
 			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
