@@ -100,7 +100,7 @@ def capsule_classify_generator(X, y, batch_size=128, shuffle=True):
 		
 
 
-def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 3):
+def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, initial_epoch=0, epochs=3):
 	
 
 	
@@ -116,7 +116,8 @@ def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, 
 # 	samples_per_epoch = batch_size * 2
 	model.fit_generator(generator=classify_generator(X_train, Y_train, batch_size, True), 
 	                    samples_per_epoch = samples_per_epoch, 
-	                    nb_epoch = nb_epoch, 
+	                    epochs = epochs,
+	                    initial_epoch = initial_epoch,
 	                    verbose=1,
 	                    validation_data = (X_valid, Y_valid),
 # 			    	    validation_data=sparse_generator(X_valid, Y_valid, batch_size, False), 
@@ -312,7 +313,7 @@ def restore_tf_model(model_prefix, sess, input_shape, model_func, is_train=True)
 
 def experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1, 
 					batch_size=128, nb_epoch=50, input_num=0, 
-					file_head="keras_cnn7", file_type="mfcc", pre_train_model_prefix=None):
+					file_head="keras_cnn7", file_type="mfcc", pre_train_model=None):
 	
 	x_train, y_train, x_valid, y_valid = data_process.data_prepare(input_num, file_head, file_type)
 	y_train = to_categorical(y_train.tolist(), cfg.voc_small.size)
@@ -326,9 +327,14 @@ def experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.
 	
 	model = model_func(x_train[0].shape, len(y_train[0]))
 	print(model.summary())
+	initial_epoch = 0
+	if pre_train_model:
+		model.load_weights(pre_train_model)
+		index_start = pre_train_model.find("_weights.") + len('_weights.')
+		index_end = pre_train_model.find("-")
+		initial_epoch = int(pre_train_model[index_start:index_end])
 	
-	
-	train_func(model, file_head, x_train, y_train, x_valid, y_valid, batch_size, nb_epoch)
+	train_func(model, file_head, x_train, y_train, x_valid, y_valid, batch_size, initial_epoch, initial_epoch + nb_epoch)
 
 def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y', 
 					batch_size=256, nb_epoch=50, input_num=0, 
@@ -515,6 +521,11 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	
 
 if __name__ == "__main__":
+#	data_process.gen_train_feature("logspecgram", True, 0.5, "../data/")
+#	data_process.gen_test_feature("logspecgram", True, 0.5)
+#	data_process.gen_silence_data(400)
+#
+#	data_process.gen_ext_feature(0, "logspecgram", True, 0.5)
 # 	test_attention_model()
 # 	test_ctc_model()
 # 	data_process.test()
@@ -528,7 +539,8 @@ if __name__ == "__main__":
 # 	ftype = "logbank"
 # 	ftype = "mfcc_16000"
 # 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1,
-# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype)
+# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype,
+# 					 pre_train_model='../checkpoints/keras_cnn_weights.19-0.0103-0.9965-0.0152-0.9949.hdf5')
 # 	experiment_tf(train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y',
 # 					batch_size=64, nb_epoch=50, input_num=0, 
 # 					file_head="tf_cap3", file_type=ftype, pre_train_model_prefix=None)
