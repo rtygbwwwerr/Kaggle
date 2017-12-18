@@ -561,9 +561,9 @@ def test():
 	#name should in ["mfcc", "logfbank", "logspecgram"]
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	name = "logspecgram"
+	name = "mfcc"
 	is_normalization = True
-	down_rate=0.5
+	down_rate=1.0
 # 	gen_augmentation_data()
 # 	default_label = 'off'
 	gen_train_feature(name, is_normalization, down_rate)
