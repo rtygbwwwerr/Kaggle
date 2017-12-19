@@ -1,0 +1,16 @@
+score_dict = {
+    'down': 0.06,
+    'go': 0.08,
+    'left': 0.08,
+    'no': 0.07,
+    'off': 0.07,
+    'on': 0.08,
+    'right': 0.07,
+    'silence': 0.09,
+    'stop': 0.08,
+    'unknown': 0.09,
+    'up': 0.08,
+    'yes': 0.08
+}
+
+for 30% test data
