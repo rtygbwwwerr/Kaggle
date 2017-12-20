@@ -83,15 +83,18 @@ def load_tf_seq2seq_model(sess, model_func, train_data_num, batch_size, model_fi
 	return model, initial_epoch, start_step	
 	
 def interpret(voc, ids, join_string=' '):
+	real_ids = interpret_ids(voc, ids)
+
+	return join_string.join(voc.i2w(ri) for ri in real_ids)
+
+def interpret_ids(voc, ids):
 	real_ids = []
 	for _id in ids:
 		if _id == voc.end_flg_index:
 			break
 		elif _id != voc.pad_flg_index:
 			real_ids.append(_id)
-			
-
-	return join_string.join(voc.i2w(ri) for ri in real_ids)
+	return real_ids
 
 def eval_result(voc, input_ids, output_ids, infer_output_ids, step, batch_size, print_detil=True):
 	right, wrong = 0.0, 0.0
