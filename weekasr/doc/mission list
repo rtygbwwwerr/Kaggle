@@ -1,6 +1,7 @@
 CTC Seq2Seq
 Attention Seq2Seq
 CNN classification(CE loss)
+Capsule network
 divide the unknown data along with their original labels
 generate silence data from background noise
 use the prefix and suffix data in each wav file as silence data(in seq2seq model)
@@ -8,6 +9,7 @@ use the prefix and suffix data in each wav file as silence data(in seq2seq model
 
 using Attention joint CTC
 using CNN+muti-frame+CTC
+Capsule network with EM routing
 using mono-phone as output
 using VAD cut the away silence data in the word wav file
 combining input frame
