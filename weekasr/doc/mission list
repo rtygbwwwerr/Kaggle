@@ -1,3 +1,4 @@
+##Tried
 CTC Seq2Seq
 Attention Seq2Seq
 CNN classification(CE loss)
@@ -7,6 +8,7 @@ generate silence data from background noise
 use the prefix and suffix data in each wav file as silence data(in seq2seq model)
 
 
+##On going
 using Attention joint CTC
 using CNN+muti-frame+CTC
 Capsule network with EM routing
