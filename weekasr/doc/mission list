@@ -1,3 +1,4 @@
 using Attention joint CTC
+using CNN+muti-frame+CTC
 combining input frame feature
 postprocessing-compute Levenshtein distance
