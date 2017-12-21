@@ -1,5 +1,17 @@
+CTC Seq2Seq
+Attention Seq2Seq
+CNN classification(CE loss)
+divide the unknown data along with their original labels
+generate silence data from background noise
+use the prefix and suffix data in each wav file as silence data(in seq2seq model)
+
+
 using Attention joint CTC
 using CNN+muti-frame+CTC
 using mono-phone as output
-combining input frame feature
-postprocessing-compute Levenshtein distance
+using VAD cut the away silence data in the word wav file
+combining input frame
+combining time-field and feq-field features, or ensemble at last
+postprocessing-compute Levenshtein distance,find the best match word(char-level seq2seq)
+
+
