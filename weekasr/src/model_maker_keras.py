@@ -1,6 +1,6 @@
 from keras.optimizers import Adam
-from keras.layers import Dropout, Flatten, Conv1D, Conv2D, MaxPool1D, MaxPool2D, BatchNormalization, Convolution2D,MaxPooling2D
-from keras.layers import Input, Dense, Masking, Merge, Permute, Reshape
+from keras.layers import Dropout, Flatten, Conv1D, Conv2D, GRU, ConvLSTM2D, MaxPool1D, AvgPool2D, SeparableConv2D, MaxPool2D, BatchNormalization, Convolution2D,MaxPooling2D
+from keras.layers import Input, Dense, Masking, Merge, Permute, Reshape, Concatenate
 from keras.models import Sequential, Model
 from keras import optimizers, losses, activations, models
 import numpy as np # linear algebra
@@ -128,7 +128,6 @@ def make_lr_decay(lr=0.001):
 # 	
 # 	
 # 	return model
-
 def make_cnn1(x_shape, cls_num, trainable = True):
 	
 	model = Sequential()
@@ -164,4 +163,189 @@ def make_cnn1(x_shape, cls_num, trainable = True):
 	model.add(Dense(cls_num, activation='softmax'))
 	model.trainable = trainable
 	model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+	return model
+
+
+
+def make_cnn2(x_shape, cls_num, trainable = True):
+	
+	model = Sequential()
+	
+	model.add(Conv1D(filters = 80, kernel_size = (48,), strides=32, activation='relu',
+	                 input_shape = (x_shape[0], 1)))
+
+	model.add(Conv1D(filters = 60, kernel_size = (32,), strides=16, activation='relu'))
+	model.add(BatchNormalization())
+
+	wav_out_shape = model.get_output_shape_at(0)
+	new_shape = wav_out_shape[1:len(wav_out_shape)] + (1,)
+	model.add(Reshape(new_shape))
+	
+	model.add(Conv2D(filters = 8, kernel_size = (2, 2), activation='relu'))
+	
+	model.add(Conv2D(filters = 8, kernel_size = (2, 2), activation='relu'))
+	model.add(MaxPool2D(strides=(2, 2)))
+	model.add(Dropout(0.2))
+	model.add(Conv2D(filters = 16, kernel_size = (3, 3), activation='relu'))
+	model.add(Conv2D(filters = 16, kernel_size = (3, 3), activation='relu'))
+	model.add(MaxPool2D(strides=(2, 2)))
+	model.add(Dropout(0.2))
+	model.add(Conv2D(filters = 32, kernel_size = (3, 3), activation='relu'))
+	model.add(MaxPool2D(strides=(2,2)))
+	model.add(Dropout(0.2))
+	
+	
+	model.add(Flatten())
+	
+	model.add(Dense(128, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(Dense(128, activation='relu'))
+	model.add(BatchNormalization())
+	model.add(Dense(cls_num, activation='softmax'))
+	model.trainable = trainable
+	model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+	return model
+
+def make_rnn1(x_shape, cls_num, trainable = True):
+	model = Sequential()
+	model.add(GRU(256,input_shape=(x_shape[0], x_shape[1])))
+	model.add(Dropout(0.5))
+	model.add(Dense(cls_num, activation='softmax'))
+	model.trainable = trainable
+	model.compile(optimizer='adam',loss='binary_crossentropy',metrics=['accuracy'])
+	return model
+	
+def make_dscnn1(x_shape, cls_num, trainable = True):
+	model = Sequential()
+	model.add(Conv2D(filters = 172, kernel_size = (10, 4), activation='relu', strides=(2, 1), padding="same",
+	                 input_shape = (x_shape[0], x_shape[1], 1)))
+	model.add(BatchNormalization())
+	model.add(SeparableConv2D(filters = 172, kernel_size = (3, 3), activation='relu',strides=(2, 2), padding="same"))
+	model.add(BatchNormalization())
+	model.add(SeparableConv2D(filters = 172, kernel_size = (3, 3), activation='relu',strides=(1, 1), padding="same"))
+	model.add(BatchNormalization())
+	model.add(SeparableConv2D(filters = 172, kernel_size = (3, 3), activation='relu',strides=(1, 1), padding="same"))
+	model.add(BatchNormalization())
+	model.add(SeparableConv2D(filters = 172, kernel_size = (3, 3), activation='relu',strides=(1, 1), padding="same"))
+	model.add(BatchNormalization())
+	model.add(SeparableConv2D(filters = 172, kernel_size = (3, 3), activation='relu',strides=(1, 1), padding="same"))
+	model.add(BatchNormalization())
+	model.add(AvgPool2D(pool_size=(13, 5), strides=2, padding='valid'))
+# 	print model.get_output_shape_at(0)
+# 	model.add(Dropout(0.2))
+	
+	model.add(Flatten())
+	
+# 	model.add(Dense(256, activation='relu'))
+# 	model.add(BatchNormalization())
+# 	model.add(Dense(128, activation='relu'))
+# 	model.add(BatchNormalization())
+	model.add(Dense(cls_num, activation='softmax'))
+	model.trainable = trainable
+# 	model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+	model.compile(loss="binary_crossentropy", optimizer="RMSprop", metrics=["accuracy"])
+	return model
+	
+def make_cnn_en1(x_shape, x_wav_shape, cls_num, trainable = True):
+	inp1 = Input(shape=(x_shape[0], x_shape[1], 1))
+	norm_inp1 = BatchNormalization()(inp1)
+	cnn_out1 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(norm_inp1)
+	cnn_out1 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2, 2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2, 2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Conv2D(filters = 32, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2,2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Flatten()(cnn_out1)
+	
+	inp2 = Input(shape=(x_wav_shape[0], 1))
+	
+	cnn_out2 = Conv1D(filters = 80, kernel_size = (48,), strides=32, activation='relu')(inp2)
+	cnn_out2 = Conv1D(filters = 60, kernel_size = (32,), strides=16, activation='relu')(cnn_out2)
+	cnn_out2 = BatchNormalization()(cnn_out2)
+
+	new_shape = (cnn_out2.shape[1].value, cnn_out2.shape[2].value, 1)
+	cnn_out2 = Reshape(new_shape)(cnn_out2)
+	
+	cnn_out2 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(cnn_out2)
+	cnn_out2 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2, 2))(cnn_out2)
+	cnn_out2 = Dropout(0.2)(cnn_out2)
+	cnn_out2 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out2)
+	cnn_out2 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2, 2))(cnn_out2)
+	cnn_out2 = Dropout(0.2)(cnn_out2)
+	cnn_out2 = Conv2D(filters = 32, kernel_size = (3, 3), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2,2))(cnn_out2)
+	cnn_out2 = Dropout(0.2)(cnn_out2)
+	cnn_out2 = Flatten()(cnn_out2)
+	
+	cnn_out = Concatenate(axis=-1)([cnn_out1, cnn_out2])
+	out = Dense(256, activation='relu')(cnn_out)
+	out = BatchNormalization()(out)
+	out = Dense(256, activation='relu')(out)
+	out = BatchNormalization()(out)
+	out = Dense(cls_num, activation='softmax')(out)
+	model = Model(inputs=[inp1, inp2], outputs=out)
+	model.trainable = trainable
+	model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+	
+
+	
+	return model
+
+
+def make_cnn_en2(x_shape, x_wav_shape, cls_num, trainable = True):
+	inp1 = Input(shape=(x_shape[0], x_shape[1], 1))
+	norm_inp1 = BatchNormalization()(inp1)
+	cnn_out1 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(norm_inp1)
+	cnn_out1 = Conv2D(filters = 8, kernel_size = (2, 2), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2, 2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = Conv2D(filters = 16, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2, 2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Conv2D(filters = 32, kernel_size = (3, 3), activation='relu')(cnn_out1)
+	cnn_out1 = MaxPool2D(strides=(2,2))(cnn_out1)
+	cnn_out1 = Dropout(0.2)(cnn_out1)
+	cnn_out1 = Flatten()(cnn_out1)
+	
+	inp2 = Input(shape=(x_wav_shape[0], 1))
+	
+	cnn_out2 = Conv1D(filters = 80, kernel_size = (48,), strides=32, activation='relu')(inp2)
+	cnn_out2 = Conv1D(filters = 60, kernel_size = (32,), strides=16, activation='relu')(cnn_out2)
+	cnn_out2 = BatchNormalization()(cnn_out2)
+
+	new_shape = (cnn_out2.shape[1].value, cnn_out2.shape[2].value, 1)
+	cnn_out2 = Reshape(new_shape)(cnn_out2)
+	
+	cnn_out2 = Conv2D(filters = 60, kernel_size = (2, 2), activation='relu')(cnn_out2)
+	cnn_out2 = Conv2D(filters = 60, kernel_size = (2, 2), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2, 2))(cnn_out2)
+	cnn_out2 = BatchNormalization()(cnn_out2)
+	cnn_out2 = Conv2D(filters = 45, kernel_size = (3, 3), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2, 2))(cnn_out2)
+	cnn_out2 = Dropout(0.2)(cnn_out2)
+	cnn_out2 = Conv2D(filters = 45, kernel_size = (3, 3), activation='relu')(cnn_out2)
+	cnn_out2 = MaxPool2D(strides=(2,2))(cnn_out2)
+	cnn_out2 = Dropout(0.2)(cnn_out2)
+	cnn_out2 = Flatten()(cnn_out2)
+	
+	cnn_out = Concatenate(axis=-1)([cnn_out1, cnn_out2])
+	out = Dense(256, activation='relu')(cnn_out)
+	out = BatchNormalization()(out)
+	out = Dense(256, activation='relu')(out)
+	out = BatchNormalization()(out)
+	out = Dense(cls_num, activation='softmax')(out)
+	model = Model(inputs=[inp1, inp2], outputs=out)
+	model.trainable = trainable
+	model.compile(loss="binary_crossentropy", optimizer="RMSprop", metrics=["accuracy"])
+# 	model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
+
+	
 	return model
