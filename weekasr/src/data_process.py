@@ -24,7 +24,7 @@ from scipy.io import wavfile
 from scipy import signal
 from python_speech_features import mfcc, logfbank, fbank, delta
 from keras.preprocessing import sequence
-# cfg.init ()
+cfg.init()
 
 
 
@@ -77,20 +77,17 @@ def extract_y_info(data):
 
 
 
-def data_prepare(input_num, file_head, file_type, label_name="y"):
-	x_train, y_train = get_training_data_from_files("../data/train/", label_name, file_type)
-	x_valid, y_valid = get_training_data_from_files("../data/valid/", label_name, file_type)
-	if input_num > 0:
-		x_train = x_train[:input_num]
-		y_train = y_train[:input_num]
-	
-	
-	file_head = "{}_{}".format(file_head, file_type)
-	
-	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
-	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
-	
-	return x_train, y_train, x_valid, y_valid
+# def data_prepare(input_num, file_head, file_type, data_names=['x','x_wav', "y_c"]):
+# 	train_data = get_data_from_files("../data/train/", data_names, file_type, input_num)	
+# 	valid_data = get_data_from_files("../data/valid/", data_names, file_type, input_num)
+# 	
+# 	
+# 	file_head = "{}_{}".format(file_head, file_type)
+# 	
+# 	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
+# 	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
+# 	
+# 	return train_data, valid_data
 
 def custom_fft(y, fs):
 	T = 1.0 / fs
@@ -102,6 +99,9 @@ def custom_fft(y, fs):
 	vals = 2.0/N * np.abs(yf[0:N//2])
 	return xf, vals
 
+
+	
+	
 def logspecgram(audio, sample_rate, window_size=20,
                  step_size=10, eps=1e-10):
 	nperseg = int(round(window_size * sample_rate / 1e3))
@@ -240,8 +240,28 @@ def mfbank(x, sampling_rate):
 	feat = mfc
 	return feat
 
+def mfbank80(x, sampling_rate):
+	mfc = mfcc(x, sampling_rate, nfilt=80, numcep=80)
+# 	d_mfc = delta(mfc, N=2)
+# 	print mfc.shape
+# 	print d_mfc.shape
+# 	feat = np.hstack([mfc, d_mfc])
+	feat = mfc
+	return feat
+
+def mfcc10(x, sampling_rate):
+	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=10)
+
+def mfcc40(x, sampling_rate):
+	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=40)
+
 def logfbank40(x, sampling_rate):
 	return logfbank(x, sampling_rate, nfilt=40, lowfreq=300, highfreq=3000)
+def logfbank80(x, sampling_rate):
+	return logfbank(x, sampling_rate, nfilt=80, lowfreq=300, highfreq=3000)
+
+def rawwav(audio, sample_rate):
+	return audio
 
 def get_features(data, name, sampling_rate, **arg):
 	
@@ -277,7 +297,7 @@ def gen_train_feature(name, is_normalization=True, down_rate=1.0, data_dir="../d
 	train, val = load_data(data_dir)
 	sampling_rate = int(cfg.sampling_rate * down_rate)
 	x, y, y_c, y_w = get_wav(train, is_normalization=is_normalization)
-
+	x_wav = np.array(x)
 	
 	if down_rate < 1.0:
 		x = down_sample(x, down_rate)
@@ -286,14 +306,15 @@ def gen_train_feature(name, is_normalization=True, down_rate=1.0, data_dir="../d
 	x = get_features(x, name, sampling_rate)
 	
 	v_x, v_y, v_y_c, v_y_w = get_wav(val)
+	v_x_wav = np.array(v_x)
 # 	v_x = pad_data(v_x)
 	if down_rate < 1.0:
 		v_x = down_sample(v_x, down_rate)
 	v_x = get_features(v_x, name, sampling_rate)
 	
 	
-	np.savez(make_file_name("../data/train/train", "npz", sampling_rate, name), x = x, y = y, y_c = y_c, y_w = y_w)
-	np.savez(make_file_name("../data/valid/valid", "npz", sampling_rate, name), x = v_x, y = v_y, y_c = v_y_c, y_w = v_y_w)
+	np.savez(make_file_name("../data/train/train", "npz", sampling_rate, name), x_wav=x_wav,x = x, y = y, y_c = y_c, y_w = y_w)
+	np.savez(make_file_name("../data/valid/valid", "npz", sampling_rate, name), x_wav=v_x_wav,x = v_x, y = v_y, y_c = v_y_c, y_w = v_y_w)
 	print "sampling rate:{}".format(sampling_rate)
 	print "feature shape:{}*{}".format(x[0].shape[0], x[0].shape[1])
 	print "completed gen training data..."
@@ -302,9 +323,11 @@ def gen_test_feature(name, is_normalization=True, down_rate=1.0, data_dir="../da
 	paths = gen_input_paths(data_dir + "audio/", ".wav")
 	print "test data num:{}".format(len(paths))
 	x = []
+	names = []
 	sampling_rate = int(cfg.sampling_rate * down_rate)
 	for i,fname in enumerate(paths):
 		_, wav = wavfile.read(fname)
+		wav = pad_audio(wav)
 		wav = wav.astype(np.float32) / np.iinfo(np.int16).max
 		if is_normalization:
 			wav = standardization(wav)
@@ -315,38 +338,39 @@ def gen_test_feature(name, is_normalization=True, down_rate=1.0, data_dir="../da
 		else:
 			beg = 0
 		wav = wav[beg: beg + L]
-
+		names.append(os.path.basename(fname))
 		x.append(wav)
+		
 		if i % 10000 == 0:
 			print "read {} files".format(i)
+	x_wav = np.array(x)
 	print "completed read wav files, start extracting fearures..."
 	if down_rate < 1.0:
 		x = down_sample(x, down_rate)
 	x = get_features(x, name, sampling_rate)
 	
-	np.savez(make_file_name(data_dir + "test", "npz", sampling_rate, name), x = x)
+	np.savez(make_file_name(data_dir + "test", "npz", sampling_rate, name), x = x, x_wav=x_wav, names=names)
 	print "sampling rate:{}".format(sampling_rate)
 	print "feature shape:{}*{}".format(x[0].shape[0], x[0].shape[1])
 	print "completed gen test data..."
 	
-def get_test_data_from_files(root_path="../data/test/", filter_trim=None):
-	trim = get_file_trim(filter_trim = filter_trim)
-	print "process file type:" + trim
-	paths = gen_input_paths(root_path, trim)
-	x_list = []
-
-	
-	print "We'll load {} files...".format(len(paths))
-	for path in paths:
-		print "load data from:" + path
-		data = np.load(path)
-		x_list.append(data['x'])
-		
-	
-	x = np.vstack(x_list)
-	
-
-	return x
+# def get_test_data_from_files(root_path="../data/test/", filter_trim=None):
+# # 	trim = get_file_trim(filter_trim = filter_trim)
+# # 	print "process file type:" + trim
+# # 	paths = gen_input_paths(root_path, trim)
+# # 	x_list = []
+# # 	name_list = []
+# # 	
+# # 	print "We'll load {} files...".format(len(paths))
+# # 	for path in paths:
+# # 		print "load data from:" + path
+# # 		data = np.load(path)
+# # 		x_list.append(data['x'])
+# # 		name_list.extend(list(data['names']))
+# # 	
+# # 	x = np.vstack(x_list)
+# 	
+# 	return x, name_list
 
 def gen_input_paths(root_path="../data/ext/", file_ext_name=".csv"):
 	list_path = os.listdir(root_path)
@@ -372,27 +396,37 @@ def make_file_trim(type="npz", *args):
 	return name
 	
 	
-def get_training_data_from_files(root_path, label_name, filter_trim=None, pad_id=0):
+def get_data_from_files(root_path, data_names, filter_trim=None, input_num=0, pad_id=0):
 	trim = get_file_trim(filter_trim = filter_trim)
 	print "process file type:" + trim
 	paths = gen_input_paths(root_path, trim)
-	x_list = []
-	y_list = []
-	
+
+	data_dict = {}
 	print "We'll load {} files...".format(len(paths))
 	for path in paths:
-		print "load data from:" + path
 		data = np.load(path)
-		x_list.append(data['x'])
-# 		dy = data[label_name]
-# 		print dy.shape
-		y_list.append(data[label_name])
+		print "load {} data from:{}".format(len(data[data_names[0]]), path)
+		for name in data_names:
+			item = data[name]
+			if name in data_dict:
+				data_dict[name].append(item)
+			else:
+				data_dict[name] = [item]
+			print item.shape
 		
-	x = np.vstack(x_list)
-	y = concate_datas(y_list, pad_id)
+	for name in data_names:
+		data_dict[name] = concate_datas(data_dict[name], pad_id)
+	
+	ret = None
+	if input_num > 0:
+		ret = (data_dict[name][:input_num] for name in data_names)
+	else:
+		ret = (data_dict[name] for name in data_names)
+		
+	return ret
 
 
-	return x, y
+
 
 def concate_datas(data_list, pad_id=0):
 	datas = []
@@ -401,12 +435,13 @@ def concate_datas(data_list, pad_id=0):
 	else:
 		for data in data_list:
 			datas.extend(list(data))
-		datas = sequence.pad_sequences(datas, dtype=np.int32, padding='post', value=pad_id)
+		if pad_id != None:
+			datas = sequence.pad_sequences(datas, dtype=np.int32, padding='post', value=pad_id)
 	return datas
 
 def check_type_consistency(data_list):
 	for data in data_list:
-		if not data_util.isDigitType(data):
+		if not data_util.isDigitArrType(data):
 			return False
 	return True
 
@@ -434,11 +469,12 @@ def gen_ext_feature(id, name, is_normalization, down_rate=1.0, default_label=cfg
 	output = make_file_name("../data/train/train_ext{}".format(id), "npz", sampling_rate, name)
 	samples = load_data_ext(data_dir, default_label)			
 	x, y, y_c, y_w = get_wav(samples, is_normalization=is_normalization)
+	x_wav = np.array(x)
 	if down_rate < 1.0:
 		x = down_sample(x, down_rate)
 	x = get_features(x, name, sampling_rate)
 	
-	np.savez(output, x = x, y = y, y_c = y_c, y_w = y_w)
+	np.savez(output, x = x, x_wav = x_wav, y = y, y_c = y_c, y_w = y_w)
 	print "sampling rate:{}".format(sampling_rate)
 	print "feature shape:{}*{}".format(x[0].shape[0], x[0].shape[1])
 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, x.shape[0], id)
@@ -550,7 +586,7 @@ def augmentation(data, outdir='../data/train/ext8/',
 # def remove_silence():
 # 	v = VoiceActivityDetector(filename)
 	
-	
+
 	
 	
 def gen_augmentation_data():
@@ -558,23 +594,24 @@ def gen_augmentation_data():
 	augmentation(train)
 	
 def test():
-	#name should in ["mfcc", "logfbank", "logspecgram"]
+	#name should in ["mfcc", 'mfcc10', 'mfcc40',"logfbank", 'logfbank40', 'logfbank80', "logspecgram", 'rawwav']
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	name = "mfcc"
+	name = "logfbank"
 	is_normalization = True
-	down_rate=1.0
+	down_rate=0.5
 # 	gen_augmentation_data()
 # 	default_label = 'off'
-	gen_train_feature(name, is_normalization, down_rate)
-# 	gen_test_feature(name, is_normalization, down_rate)
+ 	gen_train_feature(name, is_normalization, down_rate)
+	gen_test_feature(name, is_normalization, down_rate)
  	gen_ext_feature(0, name, is_normalization, down_rate, cfg.sil_flg)
-	gen_ext_feature(1, name, is_normalization, down_rate, cfg.sil_flg)
-	gen_ext_feature(2, name, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(3, name, is_normalization, down_rate, 'off')
-# 	gen_ext_feature(4, name, is_normalization, down_rate, 'no')
-# 	gen_ext_feature(5, name, is_normalization, down_rate, 'up')
-# 	gen_ext_feature(6, name, is_normalization, down_rate, 'stop')
-# 	gen_ext_feature(7, name, is_normalization, down_rate, 'unknown')
+ 	gen_ext_feature(1, name, is_normalization, down_rate, cfg.sil_flg)
+ 	gen_ext_feature(2, name, is_normalization, down_rate, cfg.sil_flg)
+ 	gen_ext_feature(3, name, is_normalization, down_rate, 'off')
+ 	gen_ext_feature(4, name, is_normalization, down_rate, 'no')
+ 	gen_ext_feature(5, name, is_normalization, down_rate, 'up')
+ 	gen_ext_feature(6, name, is_normalization, down_rate, 'stop')
+ 	gen_ext_feature(7, name, is_normalization, down_rate, 'unknown')
+ 	gen_ext_feature(8, name, is_normalization, down_rate, 'unknown')
 if __name__ == "__main__":
 	test()
