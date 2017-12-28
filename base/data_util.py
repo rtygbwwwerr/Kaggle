@@ -20,6 +20,17 @@ def isDigitType(value):
 			isinstance(value, np.float16) or isinstance(value, np.int8)
 	return is_flg
 
+def isDigitArrType(value):
+	type = value.dtype
+	is_flg = (type == int) or (type == float) or \
+			(type == np.float) or (type == np.int) or \
+			(type ==  np.float32) or (type ==  np.int32) or \
+			(type == np.float64) or (type == np.int64) or \
+			(type == np.float128) or (type == np.int16) or \
+			(type == np.float16) or (type == np.int8)
+			
+	return is_flg
+
 def floatrange(start,stop,steps):
 	''' Computes a range of floating value.
 	   
@@ -238,7 +249,7 @@ def drop_outliers(dataframe, n, features):
 		# 1st quartile (25%)
 		Q1 = np.percentile(dataframe[col], 25)
 		# 3rd quartile (75%)
-		Q3 = np.percentile(dataframe[col],75)
+		Q3 = np.percentile(dataframe[col], 75)
 		# Interquartile range (IQR)
 		IQR = Q3 - Q1
 		
