@@ -15,18 +15,77 @@ import tensorflow as tf
 from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
 from base import data_util, model_util
+from keras.utils import plot_model
 cfg.init ()
 
 
-def run_submission(file_type="mfcc", model_path='../checkpoints/keras_cnn4_logbank_weights.14-0.0724-0.9788-0.2771-0.9415.hdf5'):
-	x = data_process.get_test_data_from_files(filter_trim=file_type)
-	x = np.reshape(x, x.shape + (1,))
-	model = model_maker_keras.make_cnn1(x[0].shape, cfg.voc_small.size, trainable=False)
+def run_submission(data_names, add_dim, model_func, vocab, file_type, model_path):
+	x, fnames = data_process.get_data_from_files(root_path='../data/test/', data_names=data_names, filter_trim=file_type, pad_id = None)
+	if add_dim:
+		x = np.reshape(x, x.shape + (1,))
+	model = model_func(x[0].shape, vocab.size, trainable=False)
 	model.load_weights(model_path)
-	submission(model, x)
+	print(model.summary())
+	submission(model, x, fnames, cfg.voc_small)
 	
-def run_submission_tf(file_type, model_prefix, model_func, data_gen_func, batch_size=256):
-	x = data_process.get_test_data_from_files(filter_trim=file_type)
+def run_en_submission(data_names, model_func, vocab, file_type, model_path):
+	x, x_wav, fnames = data_process.get_data_from_files(root_path='../data/test/', data_names=data_names, filter_trim=file_type, pad_id = None)
+	x = np.reshape(x, x.shape + (1,))
+	x_wav = np.reshape(x_wav, x_wav.shape + (1,))
+	model = model_func(x[0].shape, x_wav[0].shape, vocab.size, trainable=False)
+	model.load_weights(model_path)
+	print(model.summary())
+	submission(model, [x, x_wav], fnames, '../data/submission_en.csv')
+	
+def run_submission_cls_tf(file_type, model_prefix, model_func, data_gen_func=model_util.classify_generator, input_size=0, batch_size=256):
+	vocab = cfg.voc_word
+	x, fnames = data_process.get_data_from_files("../data/test/", cfg.down_rate, cfg.feat_names, cfg.label_test, input_size)
+	
+	print "test feature shape:{}*{}".format(x[0].shape[0], x[0].shape[1])
+	print "test items num:{}".format(x.shape[0])
+	
+
+	
+	model_info = {}
+ 	model_info['model_size_info'] = cfg.dscnn_model_size
+#	model_info['model_size_info'] = [6, 176, 10, 4, 2, 1, 176, 3, 3, 2, 2, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1]
+	input_info = {}
+	input_info['num_cls'] = vocab.size
+	input_info['num_features'] = x[0].shape[1]
+	input_info['num_time'] = x[0].shape[0]
+	input_info['batch_size'] = batch_size
+	input_info['train_data_num'] = x.shape[0]
+	input_info['is_training'] = False
+	#add new dimension for channels
+# 	np.savetxt("../data/X_train.txt", x_train.astype(np.int32), '%d')
+
+# 	x_train = x_train[:, np.newaxis]
+# 	x_valid = x_valid[:, np.newaxis]
+	p_labels = []
+	p_labels_sub = []
+	with tf.Session() as sess:
+		model, initial_epoch, start_step = model_util.load_tf_cls_model(sess, model_func, input_info, model_info, model_prefix)
+		for step, data_dict in enumerate(data_gen_func(x, batch_size,
+													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, 
+													decay_factor = cfg.decay_factor, 
+													keep_output_rate=1.0, sampling_probability=0.0001)):
+			print "processing batch{}".format(step)
+			values = model.run_ops(sess, data_dict, names=['output'])
+			label = map(lambda x : vocab.i2w(x), values['output'])
+			label_sub = map(lambda x : x if x in cfg.voc_small else cfg.unk_flg_str, label)
+			p_labels.extend(label)
+	df_sub = pd.DataFrame({'fname':fnames, 'label':p_labels})
+
+	
+	
+def run_submission_seq_tf(file_type, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_test_data, input_size=0, batch_size=256):
+	x, x_wav, fnames = data_process.get_data_from_files(root_path='../data/test/', data_names=["x", "x_wav", "name"], filter_trim=file_type, pad_id = None)
+	if input_size > 0:
+		x = x[:input_size]
+		fnames = fnames[:input_size]
+	
+	p_labels = []
+	p_strs = []
 	with tf.Session() as sess:
 		model, _, _ = model_util.load_tf_seq2seq_model(sess, model_func, x.shape[0], 
 																	batch_size, model_prefix,
@@ -37,17 +96,54 @@ def run_submission_tf(file_type, model_prefix, model_func, data_gen_func, batch_
 																	embedding_dim=cfg.embedding_size,
 																	vocab_size=cfg.voc_word.size + 1,
 																	input_feature_num=x[0].shape[1],
+																	is_training=False,
 																	max_decode_iter_size=cfg.max_output_len_c + 1,
 																	pad_flg_index = cfg.voc_word.pad_flg_index,
 																	start_flg_index = cfg.voc_word.start_flg_index,
 																	end_flg_index = cfg.voc_word.end_flg_index)
-	for step, data_dict in enumerate(data_gen_func(x, cfg.voc_word.pad_flg_index, batch_size,
-												init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, 
-												decay_factor = cfg.decay_factor, 
-												keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)):
-# 		feed_dict = model.make_null_feed_dict(data_dict)
-		values = model.run_ops(sess, data_dict, names=['search_output'])
-
+		for step, data_dict in enumerate(data_gen_func(x, None, batch_size,
+													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, 
+													decay_factor = cfg.decay_factor, 
+													keep_output_rate=1.0, sampling_probability=0.0001)):
+			print "processing batch{}".format(step)
+			values = model.run_ops(sess, data_dict, names=['search_output'])
+			ids = map(lambda x:model_util.interpret_ids(cfg.voc_char, x), values['search_output'])
+			strs = map(lambda x:model_util.interpret(cfg.voc_char, x), ids)
+			labels = covert_ids_to_str(cfg.voc_char.i2w, ids)
+			p_strs.extend(strs)
+			p_labels.extend(labels)
+	
+	print len(fnames)
+	print len(p_labels)
+	df_sub = pd.DataFrame({'fname':fnames, 'label':p_labels})
+	df_ret = pd.DataFrame({'fname':fnames, 'label':p_labels, 'str':p_strs})
+	print df_sub['label'].value_counts().sort_values()
+	
+	file = '../data/submission_tf.csv'
+	print "Submission samples:%d, file:%s"%(len(fnames), file)
+	df_sub.to_csv(file, index=False)
+	
+	file = '../data/result_tf.csv'
+	print "Test samples:%d, file:%s"%(len(fnames), file)
+	df_ret.to_csv(file, index=False)
+	
+def extract_tf_model_info(model_prefix, feature_types=cfg.FEATURE_TYPE):
+	for type in feature_types:
+		type_i_strart = model_prefix.find(type)
+		if type_i_strart > 0:
+			break
+	type_i_end = model_prefix.find(".")
+	type = model_prefix[type_i_strart, type_i_end]
+	
+	epoch_i_start = type_i_end + 1
+	epoch_i_end = model_prefix.find("-")
+	
+	epoch = int(model_prefix[epoch_i_start:epoch_i_end])
+	model_type_i_start = model_prefix.find('_') + 1
+	model_type_i_end = type_i_strart - 1
+	
+	mode_type = model_prefix[model_type_i_start:model_type_i_end]
+	return type, mode_type, epoch
 
 def covert_ids_to_str(i2w_func, ids):
 	"""
@@ -71,19 +167,31 @@ def covert_ids_to_str(i2w_func, ids):
 	converted string
 	"""
 	
+	def convert(ids):
+		chars = map(lambda id:i2w_func(id), ids)
+		word = ''.join(chars)
+		if word == cfg.sil_flg:
+			word = 'silence'
+		elif word not in cfg.POSSIBLE_LABELS:
+			word = 'unknown'
+		return word
+
+	decode_str = map(lambda x:convert(x[1:-1]), ids)
 	
 	
-	decode_str = None
 	return decode_str
-		
-def submission(model, x, file = '../data/submission.csv'):
+
+def format_labels(l):
+	new_label = l
+	if l not in cfg.voc_small.dic_w2i:
+		new_label = cfg.unk_word
+	return new_label
 	
-	paths = data_process.gen_input_paths("../data/test/audio/", ".wav")
-	fnames = map(lambda f:os.path.basename(f), paths)
+def submission(model, x, fnames, vocab, file = '../data/submission.csv'):
 	
 	predict_y = model.predict(x, batch_size = 256, verbose=0)
 	p_y = np.argmax(predict_y, axis=1)
-	p_labels = map(lambda y:cfg.i2n(y), p_y)
+	p_labels = map(lambda y:vocab.i2w(y), p_y)
 	
 	
 	
@@ -97,7 +205,7 @@ def submission(model, x, file = '../data/submission.csv'):
 	print "Submission samples:%d, file:%s"%(len(fnames), file)
 	df_sub.to_csv(file, index=False)
 
-def classify_generator(X, y, batch_size=128, shuffle=True):
+def classify_generator_ensemble(X, x_wav, y, batch_size=128, shuffle=True):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
 	counter = 0
 	sample_index = np.arange(X.shape[0])
@@ -108,6 +216,7 @@ def classify_generator(X, y, batch_size=128, shuffle=True):
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
 
 		X_batch = X[batch_index,:]
+		X_wav_batch = x_wav[batch_index,:]
 		y_batch = y[batch_index,:]
 		
 		# reshape X to be [samples, time steps, features]
@@ -117,11 +226,13 @@ def classify_generator(X, y, batch_size=128, shuffle=True):
 #  				X_batch[i,t,tmpx[t]] = 1.0
 		
 		counter += 1
-		yield X_batch, y_batch
+		yield [X_batch, X_wav_batch], y_batch
 		if (counter == number_of_batches):
 			if shuffle:
 				np.random.shuffle(sample_index)
 			counter = 0
+			
+
 			
 def capsule_classify_generator(X, y, batch_size=128, shuffle=True):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
@@ -151,7 +262,7 @@ def capsule_classify_generator(X, y, batch_size=128, shuffle=True):
 		
 
 
-def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, nb_epoch = 3):
+def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, batch_size=128, initial_epoch=0, nb_epoch = 0):
 	
 
 	
@@ -159,7 +270,7 @@ def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, 
 				 write_images=True, embeddings_freq=0, 
 				 embeddings_layer_names=None, embeddings_metadata=None)
 	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
-	checkpointer = ModelCheckpoint(monitor="acc", filepath=check_file, verbose=1, save_best_only=True)
+	checkpointer = ModelCheckpoint(monitor="val_acc", filepath=check_file, verbose=1, save_best_only=True)
 	# start training
 	start_time = time.time()
  	
@@ -177,6 +288,42 @@ def train_keras_model(model, ret_file_head, X_train, Y_train, X_valid, Y_valid, 
 	print 'Training time', time.time() - start_time
 	# evaluate network
 	score = model.evaluate(X_valid, Y_valid, batch_size)
+
+# 	val = np.max(p_y, axis=2)
+# 	print val
+	print('Test logloss:', score)
+	
+def train_keras_ensemble(model, ret_file_head, data_dict, batch_size=128, initial_epoch=0, nb_epoch = 0):
+	
+	x_train = data_dict['x_train']
+	x_wav_train = data_dict['x_wav_train']
+	y_train = data_dict['y_train']
+	x_valid = data_dict['x_valid']
+	x_wav_valid = data_dict['x_wav_valid']
+	y_valid = data_dict['y_valid']
+	
+	board = TensorBoard(log_dir='../logs/', histogram_freq=0, write_graph=True,
+				 write_images=True, embeddings_freq=0, 
+				 embeddings_layer_names=None, embeddings_metadata=None)
+	check_file = "../checkpoints/%s_weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_loss:.4f}-{val_acc:.4f}.hdf5"%(ret_file_head)
+	checkpointer = ModelCheckpoint(monitor="acc", filepath=check_file, verbose=1, save_best_only=True)
+	# start training
+	start_time = time.time()
+ 	
+	samples_per_epoch = int(math.ceil(x_train.shape[0] / float(batch_size)))
+# 	samples_per_epoch = batch_size * 2
+	model.fit_generator(generator=classify_generator_ensemble(x_train, x_wav_train, y_train, batch_size, True), 
+	                    samples_per_epoch = samples_per_epoch, 
+	                    nb_epoch = nb_epoch, 
+	                    verbose=1,
+	                    validation_data = ([x_valid, x_wav_valid], y_valid),
+# 			    	    validation_data=sparse_generator(X_valid, Y_valid, batch_size, False), 
+# 			    	    nb_val_samples=int(math.ceil(X_valid.shape[0] / float(batch_size))),
+			    	    callbacks=[board, checkpointer]
+			    		)
+	print 'Training time', time.time() - start_time
+	# evaluate network
+	score = model.evaluate([x_valid, x_wav_valid], y_valid, batch_size)
 
 # 	val = np.max(p_y, axis=2)
 # 	print val
@@ -321,25 +468,12 @@ def train_tf_model(
 				now_right, now_wrong, _ = model_util.eval_result(vocab, None, data_dict['Y'], values['search_output'], 0, batch_size)
 				acc = 100*now_right/float(now_right + now_wrong)
 				print "Current Right: {}, Wrong: {}, Accuracy: {}%".format(now_right, now_wrong, acc)
-# 			if (print_step) % 300 == 0:
-# 				val_ret, mini_acc = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1,
-# 														 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
-# 														 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0001)
-# 				save_valid_ret(print_step, "mini_valid_ret", val_ret)
-# 				print "Mini-test Accuracy: {:.2}%".format(mini_acc)
-# 				path = "../checkpoints/mini/{prefix}.{epoch_id}_{id:02d}-{val_acc:.5f}.ckpt".format(
-# 																								prefix="mini",
-# 																							    epoch_id=epoch,
-# 																							    id=print_step,
-# 																							    val_acc=mini_acc,
-# 																							    )
-# 				saved_path = saver.save(sess, path, global_step=print_step)
-# 				print "saved check file:" + saved_path
+
 				
 		epoch_loss = epoch_loss / float(step_nums)
 		epoch_acc = epoch_acc / float(step_nums)
 		epoch_acc_seq = epoch_acc_seq / float(step_nums)
-		val_ret, acc_val = model_util.valid_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func,
+		val_ret, acc_val = model_util.valid_seq_data(sess, model, vocab, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func,
 												 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
 												 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
 # 		valid_summary_writer.add_summary(summaries_valid, epoch)
@@ -352,7 +486,74 @@ def train_tf_model(
 		saved_path = saver.save(sess, path, global_step=model.get_op('global_step'))
 		print "saved check file:" + saved_path
 # 		print "Val Accuracy: {:.2}%".format(acc_val)
-		
+
+def train_tf_classifier(
+			data_gen_func, vocab, sess, model, log_dir, ret_file_head, 
+			X_train, Y_train, X_valid, Y_valid,
+			initial_epoch, start_step, batch_size=128, nb_epoch = 100):
+
+	max_epoch = nb_epoch
+	step_nums = int(math.ceil(X_train.shape[0] / float(batch_size)))
+	print "Total epoch:{}, batch size{}, step num of each epoch:{}".format(max_epoch, batch_size, step_nums)
+
+	saver = tf.train.Saver(max_to_keep=100)
+# 	summary_writer = tf.train.summary.SummaryWriter('../log/tf/', sess.graph)
+	train_summary_writer = tf.summary.FileWriter(log_dir, sess.graph_def)
+	g_step = start_step
+	print "Training Start!,init step:{}".format(g_step)
+
+	for epoch in range(initial_epoch, max_epoch):
+		print "Epoch {}".format(epoch)
+		epoch_loss = 0.
+		epoch_acc = 0.
+		epoch_acc_seq = 0.
+		for step, data_dict in enumerate(data_gen_func(X_train, Y_train, batch_size, True, 
+													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor, 
+													dropout_prob=cfg.keep_output_rate)):
+# 			print g_step
+# 			feed_dict['batch_size'] = data_dict['encoder_input'].shape[0]
+			values = model.run_ops(sess, data_dict, names=["train_op",'summary', 'global_step', "loss", "acc", "lr"])
+			
+			g_step = values['global_step']
+	
+			info_head= "Epoch:{:3d}/{:3d}, g_Step:{:8d}, Step:{:6d}/{:6d} ... ".format(epoch, max_epoch - 1, g_step, step + 1, step_nums)
+			info_vals = []
+			for name, value in values.iteritems():
+# 				print type(value)
+				if data_util.isDigitType(value) and name != 'global_step':
+					info_vals.append("{}: {}".format(name, value))
+			
+			info_vals = ", ".join(info_vals)
+			
+			print info_head + info_vals
+			epoch_loss += values['loss']
+			epoch_acc += values['acc']
+
+			train_summary_writer.add_summary(values['summary'], g_step)
+
+				
+		epoch_loss = epoch_loss / float(step_nums)
+		epoch_acc = epoch_acc / float(step_nums)
+		acc_val, mat, cls_rate = model_util.valid_cls_data(sess, model, X_valid, Y_valid, batch_size, data_gen_func,
+												 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
+												 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
+# 		valid_summary_writer.add_summary(summaries_valid, epoch)
+		np.savetxt("../data/con_mat_{}.txt".format(epoch), mat.astype(np.int32), '%d', delimiter='	')
+		display_cls_rate_info(cls_rate, vocab)
+		path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
+																					    epoch_id=epoch,
+																					    loss=epoch_loss,
+																					    acc=epoch_acc,
+																					    val_acc=acc_val,
+																					    )
+		saved_path = saver.save(sess, path, global_step=model.get_op('global_step'))
+		print "saved check file:" + saved_path
+
+def display_cls_rate_info(cls_rate, vocab):
+	for i, rate in enumerate(cls_rate):
+		word = vocab.i2w(i)
+		print "{}-{}".format(word, rate)
+			
 def restore_tf_model(model_prefix, sess, input_shape, model_func, is_train=True):
 	# Load graph file.
 	saver = tf.train.import_meta_graph(model_prefix + '.meta')
@@ -385,20 +586,25 @@ def restore_tf_model(model_prefix, sess, input_shape, model_func, is_train=True)
 
 	return model
 
+
+
 def experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1, 
-					batch_size=128, nb_epoch=50, input_num=0, 
+					batch_size=128, nb_epoch=50, input_num=0, add_dim=True, data_names=['x', 'y'],
 					file_head="keras_cnn7", file_type="mfcc", pre_train_model=None):
 	
-	x_train, y_train, x_valid, y_valid = data_process.data_prepare(input_num, file_head, file_type)
+	x_train, y_train = data_process.get_data_from_files("../data/train/", data_names, file_type, input_num)
+	x_valid, y_valid = data_process.get_data_from_files("../data/valid/", data_names, file_type, input_num)
 	y_train = to_categorical(y_train.tolist(), cfg.voc_small.size)
 	y_valid = to_categorical(y_valid.tolist(), cfg.voc_small.size)
 	np.savetxt("../data/Y_train.txt", y_train.astype(np.int32), '%d')
 	#add new dimension for channels
-	x_train=np.reshape(x_train,x_train.shape + (1,))
-	x_valid=np.reshape(x_valid,x_valid.shape + (1,))
+	if add_dim :
+		x_train=np.reshape(x_train,x_train.shape + (1,))
+		x_valid=np.reshape(x_valid,x_valid.shape + (1,))
 # 	x_train = x_train[:, np.newaxis]
 # 	x_valid = x_valid[:, np.newaxis]
-	
+	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	model = model_func(x_train[0].shape, len(y_train[0]))
 	print(model.summary())
 	initial_epoch = 0
@@ -409,6 +615,54 @@ def experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.
 		initial_epoch = int(pre_train_model[index_start:index_end])
 	
 	train_func(model, file_head, x_train, y_train, x_valid, y_valid, batch_size, initial_epoch, initial_epoch + nb_epoch)
+
+def cut_around(y):
+	if y.shape[1] > 1:
+		return y[:, 1:-1]
+	else:
+		return y
+
+def experiment_keras_ensemble(train_func=train_keras_model, model_func=model_maker_keras.make_cnn_en1, vocab=cfg.voc_small,
+					batch_size=128, nb_epoch=50, input_num=0, add_dim=True, data_names=['x', 'x_wav', 'y'],
+					file_head="keras_cnn7", file_type="mfcc", pre_train_model=None):
+	
+	x_train, x_wav_train, y_train = data_process.get_data_from_files("../data/train/", data_names, file_type, input_num)
+	x_valid, x_wav_valid, y_valid = data_process.get_data_from_files("../data/valid/", data_names, file_type, input_num)
+	y_train = cut_around(y_train)
+	y_valid = cut_around(y_valid)
+	y_train = to_categorical(y_train.tolist(), vocab.size)
+	y_valid = to_categorical(y_valid.tolist(), vocab.size)
+	np.savetxt("../data/Y_train.txt", y_train.astype(np.int32), '%d')
+	#add new dimension for channels
+	if add_dim :
+		x_train=np.reshape(x_train,x_train.shape + (1,))
+		x_valid=np.reshape(x_valid,x_valid.shape + (1,))
+		x_wav_train=np.reshape(x_wav_train,x_wav_train.shape + (1,))
+		x_wav_valid=np.reshape(x_wav_valid,x_wav_valid.shape + (1,))
+		
+	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
+	
+	data_dict = {}
+	data_dict['x_train'] = x_train
+	data_dict['x_wav_train'] = x_wav_train
+	data_dict['y_train'] = y_train
+	data_dict['x_valid'] = x_valid
+	data_dict['x_wav_valid'] = x_wav_valid
+	data_dict['y_valid'] = y_valid
+
+	model = model_func(x_train[0].shape, x_wav_train[0].shape, len(y_train[0]))
+	print(model.summary())
+	initial_epoch = 0
+	if pre_train_model:
+		model.load_weights(pre_train_model)
+		index_start = pre_train_model.find("_weights.") + len('_weights.')
+		index_end = pre_train_model.find("-")
+		initial_epoch = int(pre_train_model[index_start:index_end])
+		
+	plot_model(model, show_shapes=True, to_file='../pic/{}.png'.format(file_head))
+	train_func(model, file_head, data_dict, batch_size, initial_epoch, initial_epoch + nb_epoch)
+
 
 def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y', 
 					batch_size=256, nb_epoch=50, input_num=0, 
@@ -446,17 +700,87 @@ def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_mak
 		train_func(data_gen_func, sess, model, log_dir, ret_file_head, 
 			x_train, y_train, x_valid, y_valid, 
 			initial_epoch, start_step, batch_size, nb_epoch)
+	
+def count_value_info(y):
+	N = len(y)
+	print "Total items:{}".format(N)
+	values, cnts = np.unique(y, return_counts=True)
+	for value, cnt in zip(values, cnts):
+		print "val :{}={} :{}".format(value, cnt, cnt / float(N))
+		
+def experiment_tf_classifier(data_gen_func, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn, label_name='y_w', 
+					batch_size=256, nb_epoch=50, input_num=0, 
+					file_head="tf_dscnn", file_type="mfcc", pre_train_model_prefix=None, is_debug=False):
+	
+	vocab = cfg.get_vocab(label_name)
+	x_train, y_train = data_process.get_data_from_files("../data/train/", cfg.down_rate, cfg.feat_names, cfg.label_names, input_num)
+# 	x_valid, y_valid = data_process.get_data_from_files("../data/valid/", cfg.down_rate, cfg.feat_names, cfg.label_names, input_num)
+	x_train, x_valid, y_train, y_valid = train_test_split(x_train, y_train, test_size=batch_size*20, random_state=0)
+	print "Training data info:"
+	count_value_info(y_train)
+	
+	print "Valid data info:"
+	count_value_info(y_valid)
+	np.savetxt("../data/Y_train_org.txt", y_train.astype(np.int32), '%d')
+	np.savetxt("../data/Y_valid_org.txt", y_valid.astype(np.int32), '%d')
+# 	y_train = np.reshape(y_train, (y_train.shape[0], ))
+# 	y_valid = np.reshape(y_valid, (y_valid.shape[0], ))
+	y_train = to_categorical(y_train.tolist(), vocab.size)
+	y_valid = to_categorical(y_valid.tolist(), vocab.size)
+	
+	np.savetxt("../data/Y_train.txt", y_train.astype(np.int32), '%d')
+	np.savetxt("../data/Y_valid.txt", y_valid.astype(np.int32), '%d')
+	
 
+	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
+	
+
+	
+	model_info = {}
+ 	model_info['model_size_info'] = cfg.dscnn_model_size
+#	model_info['model_size_info'] = [6, 176, 10, 4, 2, 1, 176, 3, 3, 2, 2, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1]
+	input_info = {}
+	input_info['num_cls'] = vocab.size
+	input_info['num_features'] = x_train[0].shape[1]
+	input_info['num_time'] = x_train[0].shape[0]
+	input_info['batch_size'] = batch_size
+	input_info['train_data_num'] = x_train.shape[0]
+	input_info['is_training'] = True
+	#add new dimension for channels
+# 	np.savetxt("../data/X_train.txt", x_train.astype(np.int32), '%d')
+
+# 	x_train = x_train[:, np.newaxis]
+# 	x_valid = x_valid[:, np.newaxis]
+	with tf.Session() as sess:
+		if is_debug:
+			sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+		model, initial_epoch, start_step = model_util.load_tf_cls_model(sess, model_func, input_info, model_info, pre_train_model_prefix)
+	
+			
+		log_dir = '../logs/tf/'
+		ret_file_head = "{}_{}".format(file_head, file_type)
+		train_func(data_gen_func, vocab, sess, model, log_dir, ret_file_head, 
+			x_train, y_train, x_valid, y_valid,
+			initial_epoch, start_step, batch_size, initial_epoch + nb_epoch)
 
 
 def experiment_tf_seq2seq(data_gen_func, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_w', 
 					batch_size=256, nb_epoch=50, input_num=0, 
 					file_head="tf_seq2seq", file_type="mfcc", pre_train_model_prefix=None, is_debug=False):
 	
-	x_train, y_train, x_valid, y_valid = data_process.data_prepare(input_num, file_head, file_type, label_name)
+	x_train, y_train = data_process.get_data_from_files("../data/train/", ['x', label_name], file_type, input_num)
+	x_valid, y_valid = data_process.get_data_from_files("../data/valid/", ['x', label_name], file_type, input_num)
+	file_head = "{}_{}".format(file_head, file_type)
+	
+	print "train feature shape:{}*{}".format(x_train[0].shape[0], x_train[0].shape[1])
+	print "train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
+
 	
 	x_train, x_valid, y_train, y_valid = train_test_split(x_train, y_train, test_size=batch_size*20, random_state=0)
-
+	
+	
+	print "Real train items num:{0}, valid items num:{1}".format(x_train.shape[0], x_valid.shape[0])
 	#add new dimension for channels
 # 	np.savetxt("../data/X_train.txt", x_train.astype(np.int32), '%d')
 	np.savetxt("../data/Y_train.txt", y_train.astype(np.int32), '%d')
@@ -572,6 +896,10 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	eqx_rate = cnt_x / float(x_valid.shape[0])	
 	eq_rate = cnt_all / float(x_valid.shape[0])
 	print "annlysis result: eqx_rate:{}, eq_rate:{}".format(eqx_rate, eq_rate)
+
+def result_analysis(sub_file="../data/ds_submission.csv"):
+	df_ret = pd.read_csv(sub_file)
+	print df_ret['label'].value_counts().sort_values()
 	
 # 	flags = np.sum(flags, axis=1, dtype=np.int32)
 # 	
@@ -582,7 +910,7 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 # 	
 # 	print eq_rate
 	
-	
+
 
 if __name__ == "__main__":
 # 	test_attention_model()
@@ -596,9 +924,25 @@ if __name__ == "__main__":
 	ftype = "logspecgram_8000"
 # 	ftype = 'mfbank_16000'
 # 	ftype = "logbank"
-	ftype = "mfcc_16000"
+# 	ftype = "mfcc40_16000"
+
+	vocab = cfg.voc_small
+# 	result_analysis("../data/crnn_9500_submission.csv")
+
 # 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1,
 # 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype)
+
+# 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_rnn1, add_dim=False, 
+# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_rnn_gru", file_type=ftype)
+	
+# 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_dscnn1,
+# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_dscnn", file_type=ftype)
+# 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn2, add_dim=True, data_names=['x_wav', 'y'],
+# 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn_wav", file_type=ftype)
+	
+# 	experiment_keras_ensemble(train_func=train_keras_ensemble, model_func=model_maker_keras.make_cnn_en2, vocab=vocab,
+# 						batch_size=256, nb_epoch=100, input_num=0, add_dim=True, data_names=['x', 'x_wav', 'y'],
+# 						file_head="keras_cnn_en", file_type=ftype, pre_train_model=None)
 # 	experiment_tf(train_func=train_tf_model, model_func=model_maker_tf.make_CapsNet, label_name='y',
 # 					batch_size=64, nb_epoch=50, input_num=0, 
 # 					file_head="tf_cap3", file_type=ftype, pre_train_model_prefix=None)
@@ -613,12 +957,18 @@ if __name__ == "__main__":
 # 					file_head="tf_att_seq2seq", 
 # 					file_type=ftype, pre_train_model_prefix="../checkpoints/tf/tf_att_seq2seq_mfcc_16000.27-0.05072-0.96616-0.97383.ckpt-7506", is_debug=False)
 	
-	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
-					batch_size=256, nb_epoch=300, input_num=0, 
-					file_head="tf_att_seq2seq", 
-					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
-	
-# 	run_submission(file_type=ftype, model_path='../checkpoints/keras_cnn_weights.42-0.0110-0.9960-0.0048-0.9987.hdf5')
+# 	experiment_tf_seq2seq(data_gen_func=model_util.gen_tf_dense_data, train_func=train_tf_model, model_func=model_maker_tf.make_tf_AttentionSeq2Seq, label_name='y_c',
+# 					batch_size=256, nb_epoch=300, input_num=0, 
+# 					file_head="tf_att_seq2seq", 
+# 					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
+	experiment_tf_classifier(model_util.classify_generator, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn, 
+					label_name='y_w', batch_size=256, nb_epoch=150, input_num=0, 
+					file_head="tf_dscnn", file_type=ftype, pre_train_model_prefix=None, is_debug=False)
+# 	run_submission_tf(file_type=ftype, input_size = 100,
+# 					model_prefix="../model/tf/tf_att_seq2seq_logspecgram_8000.166-0.00080-0.99590-0.94902.ckpt-42828", 
+# 					model_func=model_maker_tf.make_tf_AttentionSeq2Seq)
+# 	run_submission(['x', 'names'], False, model_maker_keras.make_rnn1, vocab, ftype, '../checkpoints/keras_rnn_gru_weights.24-0.1139-0.9580-0.1305-0.9477.hdf5')
+# 	run_en_submission(['x', 'x_wav', 'names'], model_func=model_maker_keras.make_cnn_en2, vocab=vocab, file_type=ftype, model_path='../checkpoints/keras_cnn_en_weights.18-0.0077-0.9972-0.0956-0.9762.hdf5')
 # 	detect_file('../data/test/audio/clip_0667aa08a.wav')
 
 
