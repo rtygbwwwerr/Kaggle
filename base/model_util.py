@@ -49,7 +49,26 @@ def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope
 	x_v, y_v = gen_data(valid_data_num)
 	
 	return voc, x, y, x_v, y_v
+
+
+def load_tf_cls_model(sess, model_func, input_info, model_info, model_file_prefix=None):
 	
+	model = model_func(input_info, model_info)
+
+	if model_file_prefix is None:
+		start_step = 0
+		initial_epoch = 1
+		sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+	else:
+		fname = model_file_prefix.split('/')[-1]
+		pos_a = fname.find('.')
+		pos_b = fname.find('-')
+		assert (pos_a != -1 and pos_b != -1)
+		initial_epoch = int(fname[pos_a+1:pos_b]) + 1
+		start_step = (initial_epoch - 1) * (input_info['train_data_num'] / input_info['batch_size'] + 1)
+		saver = tf.train.Saver(max_to_keep=100)
+		saver.restore(sess, model_file_prefix)
+	return model, initial_epoch, start_step	
 	
 def load_tf_seq2seq_model(sess, model_func, train_data_num, batch_size, model_file_prefix=None, **arg):
 
@@ -84,8 +103,8 @@ def load_tf_seq2seq_model(sess, model_func, train_data_num, batch_size, model_fi
 	
 def interpret(voc, ids, join_string=' '):
 	real_ids = interpret_ids(voc, ids)
-
-	return join_string.join(voc.i2w(ri) for ri in real_ids)
+	strs = join_string.join(voc.i2w(ri) for ri in real_ids)
+	return strs
 
 def interpret_ids(voc, ids):
 	real_ids = []
@@ -102,7 +121,7 @@ def eval_result(voc, input_ids, output_ids, infer_output_ids, step, batch_size, 
 	infos = []
 # 	print infer_output_ids.shape
 	infer_output_ids = infer_output_ids
-	for i in range(batch_size):
+	for i in range(len(output_ids)):
 		input_sequence = '<DATA>'
 		if input_ids is not None:
 			input_sequence = interpret(voc, input_ids[i])
@@ -124,8 +143,33 @@ def eval_result(voc, input_ids, output_ids, infer_output_ids, step, batch_size, 
 		infos.append(info)
 # 	print "Right: {}, Wrong: {}, Accuracy: {}%".format(right, wrong, 100*right/float(right + wrong))
 	return right, wrong, infos
+
+
+def valid_cls_data(sess, model, X_valid, Y_valid, batch_size, gen_func, batch_num=0, **args):
+	mat = None
+	accuracy = 0
+	num = math.ceil(X_valid.shape[0] / batch_size)
+	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, batch_size, False, **args)):
+		if (batch_num > 0) and (step > batch_num):
+			break
+		values = model.run_ops(sess, data_dict, names=["cf_mat", "acc"])
+		print "Batch: {}, Accuracy: {}%".format(step, 100 * values['acc'])
+		if mat is None:
+			mat = values['cf_mat']
+		else:
+			mat = mat + values['cf_mat']
 	
-def valid_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, gen_func, batch_num=0, **args):
+		accuracy = accuracy + values['acc']
+	accuracy = accuracy / num
+	#plus a little number to prevent overflow
+	cls_correct_rate = mat.diagonal() / ((np.sum(mat, axis=1)).astype(np.float32) + 1e-8)
+	print mat
+	print "class cor-rate:" + str(cls_correct_rate.tolist())
+	print "Total: {}, Accuracy: {}%".format(X_valid.shape[0], accuracy * 100)
+	return accuracy, mat, cls_correct_rate
+
+
+def valid_seq_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, gen_func, batch_num=0, **args):
 	right = 0
 	wrong = 0
 	val_ret = []
@@ -149,7 +193,7 @@ def slice_array(arr, indeies):
 		arr = arr[indeies, :]
 	return arr
 
-def gen_tf_sparse_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size=128, shuffle=True, **args):
+def classify_generator(X, y, batch_size=128, shuffle=True, **args):
 	number_of_batches = np.ceil(X.shape[0]/batch_size)
 	counter = 0
 	sample_index = np.arange(X.shape[0])
@@ -158,6 +202,51 @@ def gen_tf_sparse_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size=128, shuffle=True, *
 	data_dict = {}
 	while True:
 		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+
+		X_batch = X[batch_index,:]
+		y_batch = y[batch_index]
+		data_dict['X'] = X_batch
+		data_dict['Y'] = y_batch
+		for k, v in args.iteritems():
+			data_dict[k] = v
+		counter += 1
+		yield data_dict
+		if (counter >= number_of_batches):
+			break
+		
+def gen_tf_classify_test_data(X, batch_size, **args):
+	number_of_batches = np.ceil(X.shape[0]/float(batch_size))
+	counter = 0
+	sample_index = np.arange(X.shape[0])
+
+	data_dict = {}
+	while True:
+		batch_index = get_batch_index(sample_index, batch_size, counter)
+		size = len(batch_index)
+# 		print size
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+		X_batch = slice_array(X, batch_index)
+
+
+		data_dict['X'] = X_batch
+		data_dict['Y'] = np.ones((size,), np.int32)
+		for k, v in args.iteritems():
+			data_dict[k] = v
+			
+		yield data_dict
+		counter += 1
+		if (counter >= number_of_batches):
+			break
+def gen_tf_sparse_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size=128, shuffle=True, **args):
+	number_of_batches = np.ceil(X.shape[0]/float(batch_size))
+	counter = 0
+	sample_index = np.arange(X.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+	data_dict = {}
+	while True:
+		batch_index = get_batch_index(sample_index, batch_size, counter)
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
 		X_batch = slice_array(X, batch_index)
 		y_batch = slice_array(y, batch_index)
@@ -170,18 +259,18 @@ def gen_tf_sparse_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size=128, shuffle=True, *
 			data_dict[k] = v
 		counter += 1
 		yield data_dict
-		if (counter == number_of_batches):
+		if (counter >= number_of_batches):
 			break
 		
 def gen_tf_dense_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size, shuffle, **args):
-	number_of_batches = np.ceil(X.shape[0]/batch_size)
+	number_of_batches = np.ceil(X.shape[0]/float(batch_size))
 	counter = 0
 	sample_index = np.arange(X.shape[0])
 	if shuffle:
 		np.random.shuffle(sample_index)
 	data_dict = {}
 	while True:
-		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+		batch_index = get_batch_index(sample_index, batch_size, counter)
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
 		X_batch = slice_array(X, batch_index)
 		y_batch = slice_array(y, batch_index)
@@ -189,36 +278,48 @@ def gen_tf_dense_data(X, y, PAD_ID_X, PAD_ID_Y, batch_size, shuffle, **args):
 		data_dict['X_lenghts'] = data_util.get_arrays_lengths(X_batch, PAD_ID_X)
 		data_dict['Y'] = y_batch
 		data_dict['Y_lenghts'] = data_util.get_arrays_lengths(y_batch, PAD_ID_Y)
-		
+# 		print data_dict['X'].shape
+# 		print data_dict['X_lenghts'].shape
 		
 		for k, v in args.iteritems():
 			data_dict[k] = v
 			
 		counter += 1
 		yield data_dict
-		if (counter == number_of_batches):
+		if (counter >= number_of_batches):
 			break
+
+def get_batch_index(sample_index, batch_size, counter):
+	begin = batch_size*counter
+	size = min(batch_size, len(sample_index) - begin)
+	end = begin + size
+	return sample_index[begin:end]
 		
 def gen_tf_dense_test_data(X, PAD_ID_X, batch_size, **args):
-	number_of_batches = np.ceil(X.shape[0]/batch_size)
+	number_of_batches = np.ceil(X.shape[0]/float(batch_size))
 	counter = 0
 	sample_index = np.arange(X.shape[0])
 
 	data_dict = {}
 	while True:
-		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+		batch_index = get_batch_index(sample_index, batch_size, counter)
+		size = len(batch_index)
+# 		print size
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
 		X_batch = slice_array(X, batch_index)
 
+
 		data_dict['X'] = X_batch
 		data_dict['X_lenghts'] = data_util.get_arrays_lengths(X_batch, PAD_ID_X)
-		
+		data_dict['Y'] = np.ones((size, X.shape[1]), np.int32)
+		data_dict['Y_lenghts'] = np.ones((size, ), np.int32)
 		for k, v in args.iteritems():
 			data_dict[k] = v
 			
-		counter += 1
+		
 		yield data_dict
-		if (counter == number_of_batches):
+		counter += 1
+		if (counter >= number_of_batches):
 			break
 	
 def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, 
@@ -257,14 +358,14 @@ def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X, PA
 				
 				
 				if (print_step) % 300 == 0:
-					val_ret, mini_acc = valid_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1, **args)
+					val_ret, mini_acc = valid_seq_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, 1, **args)
 # 					save_valid_ret(print_step, "mini_valid_ret", val_ret)
 
 					
 			epoch_loss = epoch_loss / float(step_nums)
 			epoch_acc = epoch_acc / float(step_nums)
 			
-			val_ret, acc_val = valid_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, **args)
+			val_ret, acc_val = valid_seq_data(sess, model, vocab, x_valid, y_valid, PAD_ID_X, PAD_ID_Y, batch_size, data_gen_func, **args)
 	# 		valid_summary_writer.add_summary(summaries_valid, epoch)
 
 # 			print "Val Accuracy: {}%".format(acc_val)
