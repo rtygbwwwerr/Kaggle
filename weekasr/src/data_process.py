@@ -114,12 +114,11 @@ def custom_fft(y, fs):
 
 
 	
-	
-def logspecgram(audio, sample_rate, window_size=20,
+def logspecgram(x, sample_rate, window_size=20,
                  step_size=10, eps=1e-10):
 	nperseg = int(round(window_size * sample_rate / 1e3))
 	noverlap = int(round(step_size * sample_rate / 1e3))
-	freqs, times, spec = signal.spectrogram(audio,
+	freqs, times, spec = signal.spectrogram(x,
 	                                fs=sample_rate,
 	                                window='hann',
 	                                nperseg=nperseg,
@@ -653,23 +652,16 @@ def load_data_ext(data_dir, default_label, outlier_path=None, include_labels=Non
 
 	return samples		
 
-def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalization, down_rate=1.0, default_label=cfg.sil_flg):
-# 	data_dir = "../data/train/ext{}/".format(id)
-# # 	output = "../data/train/train_ext{}_{}.npz".format(id, name)
-# 	
-# 	sampling_rate = int(cfg.sampling_rate * down_rate)
-# 	output = make_file_name("../data/train/train_ext{}".format(id), "npz", sampling_rate, name)
-# 	samples = load_data_ext(data_dir, default_label)			
-# 	x, y, y_c, y_w = get_wav(samples, is_normalization=is_normalization)
-# 	x_wav = np.array(x)
-# 	if down_rate < 1.0:
-# 		x = down_sample(x, down_rate)
-# 	x = get_features(x, name, sampling_rate)
-# 	
-# 	np.savez(output, x = x, x_wav = x_wav, y = y, y_c = y_c, y_w = y_w)
-# 	print "sampling rate:{}".format(sampling_rate)
-# 	print "feature shape:{}*{}".format(x[0].shape[0], x[0].shape[1])
-# 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, x.shape[0], id)
+def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalization, 
+					down_rate=1.0, default_label=cfg.sil_flg):
+	'''
+	:param id: ext fold id, which stores your extension data, should be a number. For example, if your data is in 
+	           dir:'data/train/ext1', you should set id = 1
+	:param feature_names: features' names which would be extracted. 
+	:param label_names:data labels, as 'Y' used in your model
+	
+	'''
+
 	data = load_data_ext("../data/train/ext{}/".format(id), default_label)
 	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, "../data/train/train_ext{}".format(id))
 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, len(data), id)
@@ -1187,6 +1179,20 @@ def copy_suspect_data(suspect_id_dir='../data/outlier/', target_dir='../data/out
 	
 def detect_signal_word(word, n_components=3, contamination=0.005):
 	detect_outlier('../data/train/audio/{}'.format(word), word, n_components, contamination)
+	
+def copy_and_remane(name_dict_path='../data/submission_tf_dscnn_95234_84.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/'):
+	df = pd.read_csv(name_dict_path)
+	name_dict = {}
+	for i in range(len(df)):
+		name_dict[df.at[i, 'fname']] = df.at[i, 'label']
+	paths = gen_input_paths(orig_dir, file_ext_name=".wav")
+	for path in paths:
+		name = os.path.basename(path)
+		label = name_dict[name]
+		dst_name = make_new_name(path, target_dir, label)
+		shutil.copy(path, dst_name)
+		print "copy test data: {} --> {}".format(path, dst_name)
+	
 def test():
 	'''
 	label name: corresponding to 'truth Y'
@@ -1211,6 +1217,24 @@ def test():
 	:param  zcr:zero-crossing rate (to do)
 	:param	TECCs:teager energy cepstrum coefficients (to do)
 	:param  TEMFCC:teager-based Mel-Frequency cepstral coefficients (to do)
+	
+	Feature extracting:
+	training data set:call function gen_train_feature
+	test data set:call function gen_test_feature
+	ext data set:
+	1.make sure your extension data is set in "data/train/ext{id}/", here id should be a number.
+	2.call function gen_ext_feature
+	
+	Add new feature extractors:
+	Please refer to function logspecgram, and use your function name as the feature name when call gen_XXX_feature function.
+	For example, if you would add new feature zero-crossing rate, please follow below steps:
+	1.implemented a new feature extractor function named zcr, this function should keep the same arguments list as 
+	  the extant feature functions: zcr(x, sampling_rate, **arg). the x is raw wav data, sampling_rate represents sample rate,
+	  and **arg is your private parameters.
+	2.make a new extXX fold under data/train/, like data/train/ext1, and put a few of test wav files in this fold.
+	3.call gen_ext_feature function in test() function
+	4.after that, the zcr feature will be store in file ext1_XXX.npz, use numpy.load read your data, and the key is "x_zcr"
+	5.check if your feature data is wrong or no.
 	'''
 # 	ref_lable_name = 
 # 	ref_feature_name = 
@@ -1222,6 +1246,7 @@ def test():
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
+	copy_and_remane()
 # 	copy_suspect_data()
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
@@ -1253,8 +1278,10 @@ def test():
 # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(14, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(25, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	for i in range(15, 25):
 # 		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 if __name__ == "__main__":
