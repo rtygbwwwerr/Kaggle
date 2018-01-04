@@ -35,3 +35,14 @@ class Vocab:
 	
 	def w2i(self, w):
 		return self.dic_w2i.get(w, self.unk_flg_index)
+	
+	def w_in(self, w):
+		return w in self.dic_w2i
+	
+	def i_in(self, i):
+		return i in self.dic_i2w
+	
+	def wordset(self):
+		return set(self.dic_w2i.keys())
+	
+		
