@@ -2,9 +2,9 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.contrib.rnn import LSTMStateTuple
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, \
-									   BasicDecoder, BeamSearchDecoder, dynamic_decode, \
-									   TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
-									   BahdanauAttention, LuongAttention
+										 BasicDecoder, BeamSearchDecoder, dynamic_decode, \
+										 TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
+										 BahdanauAttention, LuongAttention
 
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -14,8 +14,58 @@ from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import math_ops
+import tensorflow.contrib.slim as slim
+import math
+from abc import ABCMeta, abstractmethod
 
-from abc import ABCMeta, abstractmethod				   
+def ds_cnn_arg_scope(scale_l1, scale_l2):
+	"""Defines the default ds_cnn argument scope.
+	Args:
+		weight_decay: The weight decay to use for regularizing the model.
+	Returns:
+		An `arg_scope` to use for the DS-CNN model.
+	"""
+	with slim.arg_scope(
+			[slim.convolution2d, slim.separable_convolution2d],
+			weights_initializer=slim.initializers.xavier_initializer(),
+			biases_initializer=slim.init_ops.zeros_initializer(),
+			weights_regularizer=slim.l1_l2_regularizer(scale_l1=scale_l1, scale_l2=scale_l2)) as sc:
+		return sc
+
+def depthwise_separable_conv2(inputs,
+								num_pwc_filters,
+								sc,
+								kernel_size,
+								w_scale_l1,
+								w_scale_l2,
+								b_scale_l1,
+								b_scale_l2,				
+								stride):
+	""" Helper function to build the depth-wise separable convolution layer.
+	"""
+
+	# skip pointwise by setting num_outputs=None
+	depthwise_conv = slim.separable_convolution2d(inputs,
+													num_outputs=None,
+													stride=stride,
+# 													weights_regularizer=slim.l1_l2_regularizer(w_scale_l1, w_scale_l2),
+# 													biases_regularizer=slim.l1_l2_regularizer(b_scale_l1, b_scale_l2),
+													depth_multiplier=1,
+													kernel_size=kernel_size,
+													scope=sc+'/depthwise_conv')
+
+	bn = slim.batch_norm(depthwise_conv, scope=sc+'/dw_batch_norm')
+	pointwise_conv = slim.convolution2d(bn,
+										num_pwc_filters,
+										kernel_size=[1, 1],
+# 										weights_regularizer=slim.l1_l2_regularizer(w_scale_l1, w_scale_l2),
+# 										biases_regularizer=slim.l1_l2_regularizer(b_scale_l1, b_scale_l2),
+										scope=sc+'/pointwise_conv')
+	
+	bn = slim.batch_norm(pointwise_conv, scope=sc+'/pw_batch_norm')
+	return bn
+
+
 # Thanks to 'initializers_enhanced.py' of Project RNN Enhancement:
 # https://github.com/nicolas-ivanov/Seq2Seq_Upgrade_TensorFlow/blob/master/rnn_enhancement/initializers_enhanced.py
 def orthogonal_initializer(scale=1.0):
@@ -84,29 +134,29 @@ class BN_LSTMCell(tf.nn.rnn_cell.RNNCell):
 				 activation=tf.tanh):
 		"""Initialize the parameters for an LSTM cell.
 		Args:
-		  num_units: int, The number of units in the LSTM cell.
-		  is_training: bool, set True when training.
-		  use_peepholes: bool, set True to enable diagonal/peephole
+			num_units: int, The number of units in the LSTM cell.
+			is_training: bool, set True when training.
+			use_peepholes: bool, set True to enable diagonal/peephole
 			connections.
-		  cell_clip: (optional) A float value, if provided the cell state
+			cell_clip: (optional) A float value, if provided the cell state
 			is clipped by this value prior to the cell output activation.
-		  initializer: (optional) The initializer to use for the weight
+			initializer: (optional) The initializer to use for the weight
 			matrices.
-		  num_proj: (optional) int, The output dimensionality for
-			the projection matrices.  If None, no projection is performed.
-		  forget_bias: Biases of the forget gate are initialized by default
+			num_proj: (optional) int, The output dimensionality for
+			the projection matrices.	If None, no projection is performed.
+			forget_bias: Biases of the forget gate are initialized by default
 			to 1 in order to reduce the scale of forgetting at the beginning of
 			the training.
-		  state_is_tuple: If True, accepted and returned states are 2-tuples of
-			the `c_state` and `m_state`.  If False, they are concatenated
+			state_is_tuple: If True, accepted and returned states are 2-tuples of
+			the `c_state` and `m_state`.	If False, they are concatenated
 			along the column axis.
-		  activation: Activation function of the inner states.
+			activation: Activation function of the inner states.
 		"""
 		if not state_is_tuple:
 			tf.logging.log_first_n(
 				tf.logging.WARN,
 				"%s: Using a concatenated state is slower and "
-				" will soon be deprecated.  Use state_is_tuple=True.", 1, self)
+				" will soon be deprecated.	Use state_is_tuple=True.", 1, self)
 
 		self.num_units = num_units
 		self.is_training = is_training
@@ -225,113 +275,464 @@ class ScheduledEmbeddingTrainingHelper_p(TrainingHelper):
 	"""
 
 	def __init__(self, inputs, sequence_length, embedding, sampling_probability,
-               time_major=False, seed=None, scheduling_seed=None, name=None):
+				 time_major=False, seed=None, scheduling_seed=None, name=None):
 		"""Initializer.
 		
 		Args:
-		  inputs: A (structure of) input tensors.
-		  sequence_length: An int32 vector tensor.
-		  embedding: A callable that takes a vector tensor of `ids` (argmax ids),
-		    or the `params` argument for `embedding_lookup`.
-		  sampling_probability: A 0D `float32` tensor: the probability of sampling
-		    categorically from the output ids instead of reading directly from the
-		    inputs.
-		  time_major: Python bool.  Whether the tensors in `inputs` are time major.
-		    If `False` (default), they are assumed to be batch major.
-		  seed: The sampling seed.
-		  scheduling_seed: The schedule decision rule sampling seed.
-		  name: Name scope for any created operations.
+			inputs: A (structure of) input tensors.
+			sequence_length: An int32 vector tensor.
+			embedding: A callable that takes a vector tensor of `ids` (argmax ids),
+			or the `params` argument for `embedding_lookup`.
+			sampling_probability: A 0D `float32` tensor: the probability of sampling
+			categorically from the output ids instead of reading directly from the
+			inputs.
+			time_major: Python bool.	Whether the tensors in `inputs` are time major.
+			If `False` (default), they are assumed to be batch major.
+			seed: The sampling seed.
+			scheduling_seed: The schedule decision rule sampling seed.
+			name: Name scope for any created operations.
 		
 		Raises:
-		  ValueError: if `sampling_probability` is not a scalar or vector.
+			ValueError: if `sampling_probability` is not a scalar or vector.
 		"""
 # 		self.select_sample_val = -1
 # 		self.next_inputs_val = -1
 # 		self.base_next_inputs_val = -1
 		with ops.name_scope(name, "ScheduledEmbeddingSamplingWrapper",
-		                    [embedding, sampling_probability]):
+							[embedding, sampling_probability]):
 			if callable(embedding):
 				self._embedding_fn = embedding
 			else:
 				self._embedding_fn = (
-			      lambda ids: embedding_ops.embedding_lookup(embedding, ids))
+					lambda ids: embedding_ops.embedding_lookup(embedding, ids))
 			self._sampling_probability = ops.convert_to_tensor(
-			    sampling_probability, name="sampling_probability")
+				sampling_probability, name="sampling_probability")
 			if self._sampling_probability.get_shape().ndims not in (0, 1):
 				raise ValueError(
-				    "sampling_probability must be either a scalar or a vector. "
-				    "saw shape: %s" % (self._sampling_probability.get_shape()))
+					"sampling_probability must be either a scalar or a vector. "
+					"saw shape: %s" % (self._sampling_probability.get_shape()))
 
 			
 			self._seed = seed
 			self._scheduling_seed = scheduling_seed
 			super(ScheduledEmbeddingTrainingHelper_p, self).__init__(
-			    inputs=inputs,
-			    sequence_length=sequence_length,
-			    time_major=time_major,
-			    name=name)
+				inputs=inputs,
+				sequence_length=sequence_length,
+				time_major=time_major,
+				name=name)
 	
 	def initialize(self, name=None):
 		return super(ScheduledEmbeddingTrainingHelper_p, self).initialize(name=name)
 	
 	def sample(self, time, outputs, state, name=None):
 		with ops.name_scope(name, "ScheduledEmbeddingTrainingHelperSample",
-		                    [time, outputs, state]):
+							[time, outputs, state]):
 			# Return -1s where we did not sample, and sample_ids elsewhere
 			select_sampler = bernoulli.Bernoulli(
-			    probs=self._sampling_probability, dtype=dtypes.bool)
+				probs=self._sampling_probability, dtype=dtypes.bool)
 			select_sample = select_sampler.sample(
-			    sample_shape=self.batch_size, seed=self._scheduling_seed)
+				sample_shape=self.batch_size, seed=self._scheduling_seed)
 			
 # 			self.logs = tf.Print(select_sample, [select_sample])
 # 			sample_id_sampler = categorical.Categorical(logits=outputs)
 			sample_ids = math_ops.cast(math_ops.argmax(outputs, axis=-1), dtypes.int32)
 # 			select_sample = tf.ones(shape=(self.batch_size,), dtype=dtypes.bool, name="test")
 			return array_ops.where(
-			    select_sample,
-			    sample_ids,
-			    gen_array_ops.fill([self.batch_size], -1))
+				select_sample,
+				sample_ids,
+				gen_array_ops.fill([self.batch_size], -1))
 # 			return sample_ids
 	
 	def next_inputs(self, time, outputs, state, sample_ids, name=None):
 		with ops.name_scope(name, "ScheduledEmbeddingTrainingHelperNextInputs",
-		                    [time, outputs, state, sample_ids]):
+							[time, outputs, state, sample_ids]):
 			(finished, base_next_inputs, state) = (
-			    super(ScheduledEmbeddingTrainingHelper_p, self).next_inputs(
-			        time=time,
-			        outputs=outputs,
-			        state=state,
-			        sample_ids=sample_ids,
-			        name=name))
+				super(ScheduledEmbeddingTrainingHelper_p, self).next_inputs(
+					time=time,
+					outputs=outputs,
+					state=state,
+					sample_ids=sample_ids,
+					name=name))
 			
 			def maybe_sample():
 				"""Perform scheduled sampling."""
 				where_sampling = math_ops.cast(
-				    array_ops.where(sample_ids > -1), dtypes.int32)
+					array_ops.where(sample_ids > -1), dtypes.int32)
 				where_not_sampling = math_ops.cast(
-				    array_ops.where(sample_ids <= -1), dtypes.int32)
+					array_ops.where(sample_ids <= -1), dtypes.int32)
 				sample_ids_sampling = array_ops.gather_nd(sample_ids, where_sampling)
 				
 				
 				inputs_not_sampling = array_ops.gather_nd(
-				    base_next_inputs, where_not_sampling)
+					base_next_inputs, where_not_sampling)
 				sampled_next_inputs = self._embedding_fn(sample_ids_sampling)
 				base_shape = array_ops.shape(base_next_inputs)
 				return (array_ops.scatter_nd(indices=where_sampling,
-				                             updates=sampled_next_inputs,
-				                             shape=base_shape)
-				        + array_ops.scatter_nd(indices=where_not_sampling,
-				                               updates=inputs_not_sampling,
-				                               shape=base_shape))
+											 updates=sampled_next_inputs,
+											 shape=base_shape)
+						+ array_ops.scatter_nd(indices=where_not_sampling,
+												 updates=inputs_not_sampling,
+												 shape=base_shape))
 			
 			all_finished = math_ops.reduce_all(finished)
 			next_inputs = control_flow_ops.cond(
-			    all_finished, lambda: base_next_inputs, maybe_sample)
+				all_finished, lambda: base_next_inputs, maybe_sample)
 # 			self.next_inputs_val = next_inputs
 # 			self.base_next_inputs_val = base_next_inputs
 			return (finished, next_inputs, state)
 		
+"""Base class for all models."""
 
+
+import tensorflow as tf
+
+OPTIMIZER_CLS_NAMES = {
+	"adagrad": tf.train.AdagradOptimizer,
+	"adadelta": tf.train.AdadeltaOptimizer,
+	"adam": tf.train.AdamOptimizer,
+	"rmsprop": tf.train.RMSPropOptimizer,
+	"sgd": tf.train.GradientDescentOptimizer,
+	"momentum": tf.train.MomentumOptimizer,
+	"nestrov": tf.train.MomentumOptimizer
+}
+
+
+class ModelBase(object):
+	
+	__metaclass__ = ABCMeta
+	def __init__(self):
+		self._inputs = {}
+		self._dict_ops = {}
+		self._add_op(tf.Variable(0, name='global_step', dtype=tf.int32, trainable=False), "global_step")
+	def _add_op(self, op, op_name):
+		self._dict_ops[op_name] = op
+	def get_op(self, name):
+		return self._dict_ops.get(name)
+	
+	def get_input(self, name):
+		return self._inputs[name]	
+	
+	def set_input(self, name, value):
+		self._inputs[name] = value
+		
+	def run_ops(self, sess, data_dict, names=None, exclude_names=None):
+		
+		feed_dict = self.make_null_feed_dict(data_dict)
+		
+		ops = None
+		if names != None and len(names) > 0:
+			ops = map(lambda name:self.get_op(name), names)
+		else:
+			names = self._dict_ops.keys()
+			ops = self._dict_ops.values()
+			
+		
+		
+		if exclude_names is not None and len(exclude_names) > 0:
+			for e_name in exclude_names:
+				index = names.index(e_name)
+				names.pop(index)
+				ops.pop(index)
+		
+# 		print feed_dict
+		values = sess.run(ops, feed_dict)
+		
+		dict_values = {k:v for k, v in zip(names, values)}
+		return dict_values
+	
+	def _make_null_array(self, val):
+		val_arr = None
+		shape = val.shape
+		type = val.dtype.as_numpy_dtype
+		if shape is None or str(shape) == '<unknown>' or len(shape) == 0:
+			val_arr = 0
+		else:
+			arr_shape = [1] * len(shape)
+			val_arr = np.zeros(arr_shape, dtype=type)
+		return val_arr
+	
+	def make_null_feed_dict(self, data_dict):
+		feed_dict = self._make_feed_dict(data_dict)
+		for key, val in self._inputs.iteritems():
+			if key not in data_dict:
+				feed_dict[self._inputs[key]] = self._make_null_array(val)
+		return feed_dict
+				
+	def _make_feed_dict(self, data_dict):
+		feed_dict = {}
+		for key in data_dict.keys():
+			
+			if key in self._inputs:
+				feed_dict[self._inputs[key]] = data_dict[key]
+			else:pass
+# 				print 'Unexpected argument {} in input dictionary!'.format(key)
+		return feed_dict
+	
+	def _add_noise_to_inputs(self, inputs, stddev=0.075):
+		"""Add gaussian noise to the inputs.
+		Args:
+			inputs: the noise free input-features.
+			stddev (float, optional): The standart deviation of the noise.
+				Default is 0.075.
+		Returns:
+			inputs: Input features plus noise.
+		"""
+		# if stddev != 0:
+		#	 with tf.variable_scope("input_noise"):
+		#		 # Add input noise with a standart deviation of stddev.
+		#		 inputs = tf.random_normal(
+		#			 tf.shape(inputs), 0.0, stddev) + inputs
+		# return inputs
+		raise NotImplementedError
+
+	def _add_noise_to_gradients(self, grads_and_vars, gradient_noise_scale,
+								stddev=0.075):
+		"""Adds scaled noise from a 0-mean normal distribution to gradients.
+		Args:
+			grads_and_vars:
+			gradient_noise_scale:
+			stddev (float):
+		Returns:
+		"""
+		raise NotImplementedError
+
+	def _set_optimizer(self, optimizer, learning_rate):
+		"""Set optimizer.
+		Args:
+			optimizer (string): the name of the optimizer in
+				OPTIMIZER_CLS_NAMES
+			learning_rate (float): A learning rate
+		Returns:
+			optimizer:
+		"""
+		optimizer = optimizer.lower()
+		if optimizer not in OPTIMIZER_CLS_NAMES:
+			raise ValueError(
+				"Optimizer name should be one of [%s], you provided %s." %
+				(", ".join(OPTIMIZER_CLS_NAMES), optimizer))
+
+		# Select optimizer
+		if optimizer == 'momentum':
+			return OPTIMIZER_CLS_NAMES[optimizer](
+				learning_rate=learning_rate,
+				momentum=0.9)
+		elif optimizer == 'nestrov':
+			return OPTIMIZER_CLS_NAMES[optimizer](
+				learning_rate=learning_rate,
+				momentum=0.9,
+				use_nesterov=True)
+		else:
+			return OPTIMIZER_CLS_NAMES[optimizer](
+				learning_rate=learning_rate)
+
+	def train(self, loss, optimizer, learning_rate):
+		"""Operation for training. Only the sigle GPU training is supported.
+		Args:
+			loss: An operation for computing loss
+			optimizer (string): name of the optimizer in OPTIMIZER_CLS_NAMES
+			learning_rate (placeholder): A learning rate
+		Returns:
+			train_op: operation for training
+		"""
+		# Create a variable to track the global step
+		global_step = tf.Variable(0, name='global_step', trainable=False)
+
+		# Set optimizer
+		self.optimizer = self._set_optimizer(optimizer, learning_rate)
+
+		if self.clip_grad_norm is not None:
+			# Compute gradients
+			grads_and_vars = self.optimizer.compute_gradients(loss)
+
+			# Clip gradients
+			clipped_grads_and_vars = self._clip_gradients(grads_and_vars)
+
+			# Create operation for gradient update
+			with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+				train_op = self.optimizer.apply_gradients(
+					clipped_grads_and_vars,
+					global_step=global_step)
+
+		else:
+			# Use the optimizer to apply the gradients that minimize the loss
+			# and also increment the global step counter as a single training
+			# step
+			with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+				train_op = self.optimizer.minimize(
+					loss, global_step=global_step)
+
+		return train_op
+
+	def _clip_gradients(self, grads_and_vars):
+		"""Clip gradients.
+		Args:
+			grads_and_vars (list): list of tuples of `(grads, vars)`
+		Returns:
+			clipped_grads_and_vars (list): list of tuple of
+				`(clipped grads, vars)`
+		"""
+		# TODO: Optionally add gradient noise
+
+		clipped_grads_and_vars = []
+
+		# Clip gradient norm
+		for grad, var in grads_and_vars:
+			if grad is not None:
+				clipped_grads_and_vars.append(
+					(tf.clip_by_norm(grad, clip_norm=self.clip_grad_norm),
+					 var))
+
+		# Clip gradient
+		# for grad, var in grads_and_vars:
+		#	 if grad is not None:
+		#		 clipped_grads_and_vars.append(
+		#			 (tf.clip_by_value(grad,
+		#								 clip_value_min=-self.clip_grad_norm,
+		#								 clip_value_max=self.clip_grad_norm),
+		#				var))
+
+		# TODO: Add histograms for variables, gradients (norms)
+		# self._tensorboard(trainable_vars)
+
+		return clipped_grads_and_vars
+
+	@abstractmethod
+	def _build_network_output(self):pass
+	
+	@abstractmethod
+	def _build_loss(self, logits, targets):pass
+	
+	@abstractmethod	
+	def _build_train_step(self, cost):pass
+
+	@abstractmethod
+	def _build_summary(self):pass
+
+
+	
+class ClassifierBase(ModelBase):
+	
+
+	
+	def __init__(self, input_info, model_info):
+		ModelBase.__init__(self)
+		self._model_info = model_info
+		self._input_info = input_info
+	
+	@staticmethod
+	def get_x_name(index):
+		return 'X_{}'.format(index)
+	
+	def _build_inputs(self, dtype_x=tf.float32, dtype_y=tf.int32):
+		x_dims = self._input_info['x_dims']
+		for i, x_dim in enumerate(x_dims):
+			self.set_input(ClassifierBase.get_x_name(i), tf.placeholder(
+# 				shape=(None, None, x_dim[1]), # batch_size, max_time, feature_dim
+				shape=(None,) + x_dim,
+				dtype=dtype_x,
+				name=ClassifierBase.get_x_name(i)
+			))
+		self.set_input('Y', tf.placeholder(
+			shape=(None, None), # batch_size, max_time
+			dtype=dtype_y,
+			name='Y'
+		))
+		
+		self.set_input('init_lr_rate', tf.placeholder(
+			dtype=tf.float32,
+			name='init_lr_rate'
+		))
+		self.set_input('dropout_prob', tf.placeholder(dtype=tf.float32, name='dropout_prob'))
+		self.set_input('decay_step', tf.placeholder(dtype=tf.int32, name='decay_step'))
+		self.set_input('decay_factor', tf.placeholder(dtype=tf.float32, name='decay_factor'))
+
+		
+	def _build_loss(self, logits, targets):
+		with tf.name_scope('cross_entropy'):
+# 			tf.nn.sampled_softmax_loss(weights, biases, labels, inputs, num_sampled, num_classes, num_true, sampled_values, remove_accidental_hits, partition_strategy, name)
+			cp_loss = tf.nn.softmax_cross_entropy_with_logits(labels=targets, logits=logits)
+			
+			weight = self._model_info.get('cls_weight', None)
+			if weight is not None:
+				weight = ops.convert_to_tensor(weight)
+				targets = tf.cast(targets, tf.float32)
+				cp_loss = tf.nn.weighted_cross_entropy_with_logits(targets=targets, logits=logits, pos_weight=weight)
+			loss = tf.reduce_mean(cp_loss)
+		return loss
+	
+	def _build_accuracy(self, logits, targets):
+		predicted_indices = tf.argmax(logits, 1)
+		expected_indices = tf.argmax(targets, 1)
+		correct_prediction = tf.equal(predicted_indices, expected_indices)
+		
+		confusion_matrix = tf.confusion_matrix(
+		    expected_indices, predicted_indices, num_classes=self._input_info['num_cls'])
+		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+		
+		return accuracy, confusion_matrix
+	
+	def _build_train_step(self, loss):
+		with tf.variable_scope('train'):
+			lr = tf.train.exponential_decay(
+				self.get_input("init_lr_rate"),
+				self.get_op('global_step'),
+				self.get_input("decay_step"),
+				self.get_input("decay_factor"),
+				staircase=True
+			)
+			lr = tf.clip_by_value(
+				lr,
+				1e-5,
+				self.get_input('init_lr_rate'),
+				name='lr_clip'
+			)
+			opt = OPTIMIZER_CLS_NAMES.get(self._model_info['opt'], tf.train.AdadeltaOptimizer)(lr)
+# 			opt = tf.train.GradientDescentOptimizer(self._lr)
+# 			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
+# 			opt = tf.train.RMSPropOptimizer(learning_rate=lr)
+# 			opt = tf.train.AdadeltaOptimizer(learning_rate=lr)
+# 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
+# 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
+			grads = tf.constant(0.0)
+			train_variables = tf.trainable_variables()
+			grads_vars = opt.compute_gradients(loss, train_variables)
+			
+			self._add_op(lr, "lr")
+			for i, (grad, var) in enumerate(grads_vars):
+				grads_vars[i] = (tf.clip_by_norm(grad, 1.0), var)
+				grads += tf.reduce_sum(tf.reduce_sum(grads_vars[i][0]), name="total_grads")
+
+			apply_gradient_op = opt.apply_gradients(grads_vars, global_step=self.get_op('global_step'))
+			with tf.control_dependencies([apply_gradient_op]):
+				train_op = tf.no_op(name='train_step')
+				
+		return train_op
+	
+	def _build_summary(self):
+		tf.summary.scalar('learning_rate', self.get_op('lr'))
+		tf.summary.scalar('loss', self.get_op('loss'))
+		tf.summary.scalar('accuracy', self.get_op('acc'))
+		return tf.summary.merge_all()
+	
+	def _build_graph(self):
+		self._build_inputs()
+		targets = self.get_input('Y')
+		
+
+		logits, output = self._build_network_output()
+		self._add_op(output, "output")
+		self._add_op(output, "logits")
+		
+		self._add_op(self._build_loss(logits, targets), "loss")
+		
+		self._add_op(self._build_train_step(self.get_op("loss")), "train_op")
+		
+		accuracy, confuse_matrix = self._build_accuracy(logits, targets)
+		self._add_op(accuracy, "acc")
+		self._add_op(confuse_matrix, "cf_mat")
+
+		self._add_op(self._build_summary(), "summary")
+				
 class Seq2SeqBase(object):
 	__metaclass__ = ABCMeta
 	
@@ -401,14 +802,14 @@ class Seq2SeqBase(object):
 			val_arr = 0
 		else:
 			arr_shape = [1] * len(shape)
-			val_arr = np.zeros(arr_shape)
+			val_arr = np.zeros(arr_shape, dtype=type)
 		return val_arr
 	
 	def make_null_feed_dict(self, data_dict):
 		feed_dict = self._make_feed_dict(data_dict)
 		for key, val in self._inputs.iteritems():
 			if key not in data_dict:
-				feed_dict[key] = self._make_null_array(val.shape, val.dtype)
+				feed_dict[self._inputs[key]] = self._make_null_array(val.shape, val.dtype.as_numpy_dtype)
 		return feed_dict
 				
 	def _make_feed_dict(self, data_dict):
@@ -430,7 +831,7 @@ class Seq2SeqBase(object):
 	
 		
 		with tf.variable_scope('accuracy_target'):
-# 			flg = tf.equal(decoded[:, 0:cut_len],  targets[:, 0:cut_len])
+# 			flg = tf.equal(decoded[:, 0:cut_len],	targets[:, 0:cut_len])
 			flg = tf.equal(decoded, targets[:, 0:tf.shape(decoded)[1]])
 			flg = tf.cast(flg, dtype=tf.float32)
 			total_corrected = tf.reduce_sum(flg)
@@ -445,7 +846,7 @@ class Seq2SeqBase(object):
 # 	def get_ops(self):
 # 		'''
 # 		return:ops, at least consist with 7 items:0:"train_op", 1:"summary", 2:"global_step", 3:"output", 4:"loss", 5:"acc", 6:"seq_acc"
-# 		       you can add your own options after them.
+# 				 you can add your own options after them.
 # 		note:do not change the default order and names of the first seven items.
 # 		'''
 # 		ops = [self.train_op, self.summary, self.global_step, self.output, self.loss, self.accuracy, self.seq_accuracy]
@@ -455,7 +856,7 @@ class Seq2SeqBase(object):
 	
 	def run_ops(self, sess, data_dict, names=None, exclude_names=None):
 		
-		feed_dict = self._make_feed_dict(data_dict)
+		feed_dict = self.make_null_feed_dict(data_dict)
 		
 		ops = None
 		if names != None and len(names) > 0:
