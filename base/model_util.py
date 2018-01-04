@@ -6,10 +6,290 @@ import math
 import random
 from keras.preprocessing import sequence
 from base.config_util import Vocab
-
-
-
-
+from base.layers import ClassifierBase
+import matplotlib.pyplot as plt
+cnames_list = [
+'red',
+'green',
+'blue',
+'gold',
+'pink',
+'purple',
+'tomato',
+'yellow',
+'wheat',
+'brown',
+'darkgray',
+'greenyellow',
+'royalblue',
+'saddlebrown',
+'salmon',
+'black',
+'aliceblue',
+'antiquewhite',
+'aqua',
+'aquamarine',
+'azure',
+'beige',
+'bisque',
+'blanchedalmond',
+'blueviolet',
+'burlywood',
+'cadetblue',
+'chartreuse',
+'chocolate',
+'coral',
+'cornflowerblue',
+'cornsilk',
+'crimson',
+'cyan',
+'darkblue',
+'darkcyan',
+'darkgoldenrod',
+'darkgreen',
+'darkkhaki',
+'darkmagenta',
+'darkolivegreen',
+'darkorange',
+'darkorchid',
+'darkred',
+'darksalmon',
+'darkseagreen',
+'darkslateblue',
+'darkslategray',
+'darkturquoise',
+'darkviolet',
+'deeppink',
+'deepskyblue',
+'dimgray',
+'dodgerblue',
+'firebrick',
+'floralwhite',
+'forestgreen',
+'fuchsia',
+'gainsboro',
+'ghostwhite',
+'goldenrod',
+'gray',
+'honeydew',
+'hotpink',
+'indianred',
+'indigo',
+'ivory',
+'khaki',
+'lavender',
+'lavenderblush',
+'lawngreen',
+'lemonchiffon',
+'lightblue',
+'lightcoral',
+'lightcyan',
+'lightgoldenrodyellow',
+'lightgreen',
+'lightgray',
+'lightpink',
+'lightsalmon',
+'lightseagreen',
+'lightskyblue',
+'lightslategray',
+'lightsteelblue',
+'lightyellow',
+'lime',
+'limegreen',
+'linen',
+'magenta',
+'maroon',
+'mediumaquamarine',
+'mediumblue',
+'mediumorchid',
+'mediumpurple',
+'mediumseagreen',
+'mediumslateblue',
+'mediumspringgreen',
+'mediumturquoise',
+'mediumvioletred',
+'midnightblue',
+'mintcream',
+'mistyrose',
+'moccasin',
+'navajowhite',
+'navy',
+'oldlace',
+'olive',
+'olivedrab',
+'orange',
+'orangered',
+'orchid',
+'palegoldenrod',
+'palegreen',
+'paleturquoise',
+'palevioletred',
+'papayawhip',
+'peachpuff',
+'peru',
+'plum',
+'powderblue',
+'rosybrown',
+'sandybrown',
+'seagreen',
+'seashell',
+'sienna',
+'silver',
+'skyblue',
+'slateblue',
+'slategray',
+'snow',
+'springgreen',
+'steelblue',
+'tan',
+'teal',
+'thistle',
+'turquoise',
+'violet',
+'white',
+'whitesmoke',
+'yellowgreen']
+cnames = {
+'aliceblue':            '#F0F8FF',
+'antiquewhite':         '#FAEBD7',
+'aqua':                 '#00FFFF',
+'aquamarine':           '#7FFFD4',
+'azure':                '#F0FFFF',
+'beige':                '#F5F5DC',
+'bisque':               '#FFE4C4',
+'black':                '#000000',
+'blanchedalmond':       '#FFEBCD',
+'blue':                 '#0000FF',
+'blueviolet':           '#8A2BE2',
+'brown':                '#A52A2A',
+'burlywood':            '#DEB887',
+'cadetblue':            '#5F9EA0',
+'chartreuse':           '#7FFF00',
+'chocolate':            '#D2691E',
+'coral':                '#FF7F50',
+'cornflowerblue':       '#6495ED',
+'cornsilk':             '#FFF8DC',
+'crimson':              '#DC143C',
+'cyan':                 '#00FFFF',
+'darkblue':             '#00008B',
+'darkcyan':             '#008B8B',
+'darkgoldenrod':        '#B8860B',
+'darkgray':             '#A9A9A9',
+'darkgreen':            '#006400',
+'darkkhaki':            '#BDB76B',
+'darkmagenta':          '#8B008B',
+'darkolivegreen':       '#556B2F',
+'darkorange':           '#FF8C00',
+'darkorchid':           '#9932CC',
+'darkred':              '#8B0000',
+'darksalmon':           '#E9967A',
+'darkseagreen':         '#8FBC8F',
+'darkslateblue':        '#483D8B',
+'darkslategray':        '#2F4F4F',
+'darkturquoise':        '#00CED1',
+'darkviolet':           '#9400D3',
+'deeppink':             '#FF1493',
+'deepskyblue':          '#00BFFF',
+'dimgray':              '#696969',
+'dodgerblue':           '#1E90FF',
+'firebrick':            '#B22222',
+'floralwhite':          '#FFFAF0',
+'forestgreen':          '#228B22',
+'fuchsia':              '#FF00FF',
+'gainsboro':            '#DCDCDC',
+'ghostwhite':           '#F8F8FF',
+'gold':                 '#FFD700',
+'goldenrod':            '#DAA520',
+'gray':                 '#808080',
+'green':                '#008000',
+'greenyellow':          '#ADFF2F',
+'honeydew':             '#F0FFF0',
+'hotpink':              '#FF69B4',
+'indianred':            '#CD5C5C',
+'indigo':               '#4B0082',
+'ivory':                '#FFFFF0',
+'khaki':                '#F0E68C',
+'lavender':             '#E6E6FA',
+'lavenderblush':        '#FFF0F5',
+'lawngreen':            '#7CFC00',
+'lemonchiffon':         '#FFFACD',
+'lightblue':            '#ADD8E6',
+'lightcoral':           '#F08080',
+'lightcyan':            '#E0FFFF',
+'lightgoldenrodyellow': '#FAFAD2',
+'lightgreen':           '#90EE90',
+'lightgray':            '#D3D3D3',
+'lightpink':            '#FFB6C1',
+'lightsalmon':          '#FFA07A',
+'lightseagreen':        '#20B2AA',
+'lightskyblue':         '#87CEFA',
+'lightslategray':       '#778899',
+'lightsteelblue':       '#B0C4DE',
+'lightyellow':          '#FFFFE0',
+'lime':                 '#00FF00',
+'limegreen':            '#32CD32',
+'linen':                '#FAF0E6',
+'magenta':              '#FF00FF',
+'maroon':               '#800000',
+'mediumaquamarine':     '#66CDAA',
+'mediumblue':           '#0000CD',
+'mediumorchid':         '#BA55D3',
+'mediumpurple':         '#9370DB',
+'mediumseagreen':       '#3CB371',
+'mediumslateblue':      '#7B68EE',
+'mediumspringgreen':    '#00FA9A',
+'mediumturquoise':      '#48D1CC',
+'mediumvioletred':      '#C71585',
+'midnightblue':         '#191970',
+'mintcream':            '#F5FFFA',
+'mistyrose':            '#FFE4E1',
+'moccasin':             '#FFE4B5',
+'navajowhite':          '#FFDEAD',
+'navy':                 '#000080',
+'oldlace':              '#FDF5E6',
+'olive':                '#808000',
+'olivedrab':            '#6B8E23',
+'orange':               '#FFA500',
+'orangered':            '#FF4500',
+'orchid':               '#DA70D6',
+'palegoldenrod':        '#EEE8AA',
+'palegreen':            '#98FB98',
+'paleturquoise':        '#AFEEEE',
+'palevioletred':        '#DB7093',
+'papayawhip':           '#FFEFD5',
+'peachpuff':            '#FFDAB9',
+'peru':                 '#CD853F',
+'pink':                 '#FFC0CB',
+'plum':                 '#DDA0DD',
+'powderblue':           '#B0E0E6',
+'purple':               '#800080',
+'red':                  '#FF0000',
+'rosybrown':            '#BC8F8F',
+'royalblue':            '#4169E1',
+'saddlebrown':          '#8B4513',
+'salmon':               '#FA8072',
+'sandybrown':           '#FAA460',
+'seagreen':             '#2E8B57',
+'seashell':             '#FFF5EE',
+'sienna':               '#A0522D',
+'silver':               '#C0C0C0',
+'skyblue':              '#87CEEB',
+'slateblue':            '#6A5ACD',
+'slategray':            '#708090',
+'snow':                 '#FFFAFA',
+'springgreen':          '#00FF7F',
+'steelblue':            '#4682B4',
+'tan':                  '#D2B48C',
+'teal':                 '#008080',
+'thistle':              '#D8BFD8',
+'tomato':               '#FF6347',
+'turquoise':            '#40E0D0',
+'violet':               '#EE82EE',
+'wheat':                '#F5DEB3',
+'white':                '#FFFFFF',
+'whitesmoke':           '#F5F5F5',
+'yellow':               '#FFFF00',
+'yellowgreen':          '#9ACD32'}
 
 def gen_fake_plus_sequence_data(train_data_num=10000, valid_data_num=1000, scope=10000):
 	chars = list('0123456789+')
@@ -144,12 +424,12 @@ def eval_result(voc, input_ids, output_ids, infer_output_ids, step, batch_size, 
 # 	print "Right: {}, Wrong: {}, Accuracy: {}%".format(right, wrong, 100*right/float(right + wrong))
 	return right, wrong, infos
 
-
-def valid_cls_data(sess, model, X_valid, Y_valid, batch_size, gen_func, batch_num=0, **args):
+def valid_cls_realtime_data(sess, model, X_list, Y_valid, batch_size, gen_func, 
+						func_feature, feature_names, is_augment, is_normalization, batch_num=0, **args):
 	mat = None
 	accuracy = 0
-	num = math.ceil(X_valid.shape[0] / batch_size)
-	for step, data_dict in enumerate(gen_func(X_valid, Y_valid, batch_size, False, **args)):
+	num = math.ceil(Y_valid.shape[0] / batch_size)
+	for step, data_dict in enumerate(gen_func(X_list, Y_valid, func_feature, feature_names, batch_size, is_augment, is_normalization, False, **args)):
 		if (batch_num > 0) and (step > batch_num):
 			break
 		values = model.run_ops(sess, data_dict, names=["cf_mat", "acc"])
@@ -165,8 +445,36 @@ def valid_cls_data(sess, model, X_valid, Y_valid, batch_size, gen_func, batch_nu
 	cls_correct_rate = mat.diagonal() / ((np.sum(mat, axis=1)).astype(np.float32) + 1e-8)
 	print mat
 	print "class cor-rate:" + str(cls_correct_rate.tolist())
-	print "Total: {}, Accuracy: {}%".format(X_valid.shape[0], accuracy * 100)
+	print "Total: {}, Accuracy: {}%".format(Y_valid.shape[0], accuracy * 100)
 	return accuracy, mat, cls_correct_rate
+
+def valid_cls_data(sess, model, X_list, Y_valid, batch_size, gen_func, batch_num=0, **args):
+	mat = None
+	accuracy = 0
+	predict = []
+	num = math.ceil(Y_valid.shape[0] / batch_size)
+	for step, data_dict in enumerate(gen_func(X_list, Y_valid, batch_size, False, **args)):
+		if (batch_num > 0) and (step > batch_num):
+			break
+		values = model.run_ops(sess, data_dict, names=["cf_mat", "acc", "output"])
+		print "Batch: {}, Accuracy: {}%".format(step, 100 * values['acc'])
+		if mat is None:
+			mat = values['cf_mat']
+		else:
+			mat = mat + values['cf_mat']
+		output = values['output']
+# 		print output.shape
+		predict.append(output)
+	
+		accuracy = accuracy + values['acc']
+	accuracy = accuracy / num
+	#plus a little number to prevent overflow
+	cls_correct_rate = mat.diagonal() / ((np.sum(mat, axis=1)).astype(np.float32) + 1e-8)
+	predict = np.concatenate(predict)
+	print mat
+	print "class cor-rate:" + str(cls_correct_rate.tolist())
+	print "Total: {}, Accuracy: {}%".format(Y_valid.shape[0], accuracy * 100)
+	return predict, accuracy, mat, cls_correct_rate
 
 
 def valid_seq_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, gen_func, batch_num=0, **args):
@@ -193,10 +501,31 @@ def slice_array(arr, indeies):
 		arr = arr[indeies, :]
 	return arr
 
-def classify_generator(X, y, batch_size=128, shuffle=True, **args):
-	number_of_batches = np.ceil(X.shape[0]/batch_size)
+
+def gen_classify_data(X, y, batch_size, shuffle=True):
+	number_of_batches = int(math.ceil(y.shape[0] / float(batch_size)))
 	counter = 0
-	sample_index = np.arange(X.shape[0])
+	sample_index = np.arange(y.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+	while True:
+		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+
+		X_batch = X[batch_index]
+		y_batch = y[batch_index]
+
+		counter += 1
+		yield X_batch, y_batch
+ 		if (counter >= number_of_batches):
+			if shuffle:
+				np.random.shuffle(sample_index)
+			counter = 0
+
+def gen_tf_classify_data(X_list, y, batch_size, shuffle=True, **args):
+	number_of_batches = int(math.ceil(y.shape[0] / float(batch_size)))
+	counter = 0
+	sample_index = np.arange(y.shape[0])
 	if shuffle:
 		np.random.shuffle(sample_index)
 	data_dict = {}
@@ -204,9 +533,12 @@ def classify_generator(X, y, batch_size=128, shuffle=True, **args):
 		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
 
-		X_batch = X[batch_index,:]
+# 		X_batch = X[batch_index]
+		X_batch = map(lambda x: x[batch_index], X_list)
+		for i, x in enumerate(X_batch):
+			data_dict[ClassifierBase.get_x_name(i)] = x.astype(np.float32)
+			
 		y_batch = y[batch_index]
-		data_dict['X'] = X_batch
 		data_dict['Y'] = y_batch
 		for k, v in args.iteritems():
 			data_dict[k] = v
@@ -214,11 +546,43 @@ def classify_generator(X, y, batch_size=128, shuffle=True, **args):
 		yield data_dict
 		if (counter >= number_of_batches):
 			break
-		
-def gen_tf_classify_test_data(X, batch_size, **args):
-	number_of_batches = np.ceil(X.shape[0]/float(batch_size))
+
+def gen_tf_realtime_classify_data(X, y, 
+								func_gen_features, feature_names, batch_size, is_augment=True, is_normalization=True, 
+								shuffle=True, **args):
+	number_of_batches = np.ceil(y.shape[0]/batch_size)
 	counter = 0
-	sample_index = np.arange(X.shape[0])
+
+	sample_index = np.arange(y.shape[0])
+	if shuffle:
+		np.random.shuffle(sample_index)
+	data_dict = {}
+	while True:
+		batch_index = sample_index[batch_size*counter:batch_size*(counter+1)]
+# 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
+
+# 		X_batch = X[batch_index]
+		X_batch = X[batch_index]
+		
+		X_batch = func_gen_features(X_batch, feature_names, is_augment, is_normalization)
+		
+		for i, x in enumerate(X_batch):
+			data_dict[ClassifierBase.get_x_name(i)] = x.astype(np.float32)
+			
+		y_batch = y[batch_index]
+		data_dict['Y'] = y_batch
+		for k, v in args.iteritems():
+			data_dict[k] = v
+		counter += 1
+		yield data_dict
+		if (counter >= number_of_batches):
+			break
+
+		
+def gen_tf_classify_test_data(X_list, batch_size, **args):
+	number_of_batches = np.ceil(X_list[0].shape[0]/float(batch_size))
+	counter = 0
+	sample_index = np.arange(X_list[0].shape[0])
 
 	data_dict = {}
 	while True:
@@ -226,11 +590,12 @@ def gen_tf_classify_test_data(X, batch_size, **args):
 		size = len(batch_index)
 # 		print size
 # 		X_batch = np.zeros((len(batch_index), X.shape[1], cfg.input_classify_vocab_size))
-		X_batch = slice_array(X, batch_index)
 
-
-		data_dict['X'] = X_batch
-		data_dict['Y'] = np.ones((size,), np.int32)
+		X_batch = map(lambda x: x[batch_index], X_list)
+		for i, x in enumerate(X_batch):
+			data_dict[ClassifierBase.get_x_name(i)] = x
+			
+		data_dict['Y'] = np.ones((size, 1), np.int32)
 		for k, v in args.iteritems():
 			data_dict[k] = v
 			
@@ -369,6 +734,34 @@ def test_tf_model(model, vocab, x_train, y_train, x_valid, y_valid, PAD_ID_X, PA
 	# 		valid_summary_writer.add_summary(summaries_valid, epoch)
 
 # 			print "Val Accuracy: {}%".format(acc_val)
-			
+
+
+def plot_epoch_in_one(y_list, epoch_range, outdir="../checkpoints/epoch.jpg"):
+	'''
+	y_list: the values corresponding y axis, and length should be equal to epoch number.
+	each item in this list expects form like this:
+	([y1,y2,y3,...,yn], color), n = len(epoch_range)
+	'''
+	plt.subplots()
+	plt.xlabel('epoch ids')  
+	plt.ylabel('accuracy') 
+	plt.grid(True)
+# 	plt.figure(figsize=(8, 4))
+	for y_info in y_list:
+		plt.plot(epoch_range, y_info[0], y_info[1], linewidth = 1)
+# 	plt.xlabel("Time(s)")
+# 	plt.ylabel("Volt")
+# 	plt.title("Line plot")
+	plt.savefig(outdir)
+	plt.show()
+	
+	
+def plot_epoch(data_path, outdir):
+	data = np.loadtxt(data_path)
+	data_list = []
+	for i in range(data.shape[0]):
+		data_list.append((list(data[i]), cnames[cnames_list[i]]))
+	plot_epoch_in_one(data_list, range(data.shape[1]), outdir)
+	
 if __name__ == '__main__':
-	gen_fake_plus_sequence_data(10, 2, 10)
+	plot_epoch()
