@@ -11,7 +11,11 @@ from base.layers import BN_LSTMCell, Seq2SeqBase, ScheduledEmbeddingTrainingHelp
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import ops
+import tensorflow.contrib.slim as slim
+import math
 
+from base.layers import ClassifierBase
+from base.layers import depthwise_separable_conv2
 
 
 epsilon = 1e-9
@@ -881,64 +885,6 @@ def make_tf_CTCSeq2seq(
 				EOS = EOS, 
 				START = START,
 				input_batch=None)	
-		
-def make_tf_seq2seq(
-				encoder_hidden_size, 
-				decoder_hidden_size, 
-				batch_size, 
-				embedding_dim, 
-				vocab_size, 
-				max_decode_iter_size,
-				is_training = True,
-				is_restored = False,
-				dropout = 0.9,
-				encoder_cell_type = 'BN_LSTM',
-				decoder_cell_type = 'LSTM',
-				n_encoder_layers = 1,
-				n_decoder_layers = 1,
-				attention_type = 'Bahdanau',
-				attention_num_units=100,
-# 				init_learning_rate=0.35,
-				minimum_learning_rate=1e-5,
-# 				decay_steps=3e4,
-# 				decay_factor=0.6,
-				attention_depth=100,
-				is_bidrection=True,
-				is_attention=True,
-				beam_width=5,
-				PAD=0, 
-				START=1, 
-				EOS=2,
-				
-		):
-	return Seq2SeqModel(
-				encoder_hidden_size = encoder_hidden_size, 
-				decoder_hidden_size = decoder_hidden_size, 
-				batch_size = batch_size, 
-				embedding_dim = embedding_dim, 
-				vocab_size = vocab_size, 
-				is_restored = is_restored,
-				is_training = is_training,
-				dropout = dropout,
-				encoder_cell_type = encoder_cell_type,
-				decoder_cell_type = decoder_cell_type,
-				n_encoder_layers = n_encoder_layers,
-				n_decoder_layers = n_decoder_layers,
-				attention_type = attention_type,
-				attention_num_units = attention_num_units,
-				max_decode_iter_size = max_decode_iter_size,
-# 				init_learning_rate = init_learning_rate,
-				minimum_learning_rate = minimum_learning_rate,
-# 				decay_steps = decay_steps,
-# 				decay_factor = decay_factor,
-				attention_depth = attention_depth,
-				is_bidrection = is_bidrection,
-				is_attention = is_attention,
-				beam_width = beam_width,
-				PAD = PAD, 
-				EOS = EOS, 
-				START = START,
-				input_batch=None)
 
 
 def make_tf_AttentionSeq2Seq(
@@ -1054,8 +1000,8 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 # 		self._decay_factor = decay_factor
 		self._minimum_learning_rate = minimum_learning_rate
 
-		if not is_restored:
-			self._build_graph(input_feature_num)
+		
+		self._build_graph(input_feature_num)
 			
 	def _build_inputs(self, num_features):
 		
@@ -1228,7 +1174,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 						[fw_final_state, bw_final_state], 1)
 
 			else:
-				cells = self._create_RNNLayers(self._encoder_hidden_size, self._keep_output_rate, 
+				cells = self._create_RNNLayers(self._encoder_hidden_size, self.get_input('keep_output_rate'), 
 																self._n_encoder_layers, self._is_training)
 				encoder_outputs, encoder_final_state = tf.nn.dynamic_rnn(
 					cells,
@@ -1469,619 +1415,113 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 		fw_cells  = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
 		bw_cells  = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
 		return fw_cells, bw_cells
+
+
+def make_tf_dscnn(input_info, model_info):
+	return DSCNN(input_info, model_info)
+
+class DSCNN(ClassifierBase):
+	"""Builds a model with depthwise separable convolutional neural network
+	Model definition is based on https://arxiv.org/abs/1704.04861 and
+	Tensorflow implementation: https://github.com/Zehaos/MobileNet
+
+	model_size_info: defines number of layers, followed by the DS-Conv layer
+		parameters in the order {number of conv features, conv filter height, 
+		width and stride in y,x dir.} for each of the layers. 
+	Note that first layer is always regular convolution, but the remaining 
+		layers are all depthwise separable convolutions.
+		"""
+		
+	def __init__(self, input_info, model_info):
+		super(DSCNN, self).__init__(input_info, model_info)
+		self._is_training = input_info['is_training']
+		self._build_graph()
+		
+	def _gen_cnn_layer_info(self, model_size_info):
+		num_layers = model_size_info[0]
+		conv_feat = [None]*num_layers
+		conv_kt = [None]*num_layers
+		conv_kf = [None]*num_layers
+		conv_st = [None]*num_layers
+		conv_sf = [None]*num_layers
+		i=1
+		
+		for layer_no in range(0, num_layers):
+			conv_feat[layer_no] = model_size_info[i]
+			i += 1
+			conv_kt[layer_no] = model_size_info[i]
+			i += 1
+			conv_kf[layer_no] = model_size_info[i]
+			i += 1
+			conv_st[layer_no] = model_size_info[i]
+			i += 1
+			conv_sf[layer_no] = model_size_info[i]
+			i += 1
+		return num_layers, conv_feat, conv_kt, conv_kf, conv_st, conv_sf
 	
-class Seq2SeqModel:
-
-
-	def __init__(self, 
-				encoder_hidden_size, 
-				decoder_hidden_size, 
-				batch_size, 
-				embedding_dim, 
-				vocab_size, 
-				is_training = True,
-				is_restored = False,
-				dropout = 0.9,
-				encoder_cell_type = 'BN_LSTM',
-				decoder_cell_type = 'LSTM',
-				n_encoder_layers = 2,
-				n_decoder_layers = 1,
-				attention_type = 'Bahdanau',
-				attention_num_units=100,
-				max_decode_iter_size=10,
-# 				init_learning_rate=0.01,
-				minimum_learning_rate=1e-4,
-# 				decay_steps=2e4,
-# 				decay_factor=0.3,
-				attention_depth=100,
-				is_bidrection=True,
-				is_attention=True,
-				beam_width=5,
-				PAD=0,
-				START=1,
-				EOS=2, 
-				input_batch=None):
+	def _gen_dscnn_structure(self, sub_id):
+		
+		model_size_info = self._model_info["model_size_infos"][sub_id]
+		num_layers, conv_feat, conv_kt, conv_kf, conv_st, conv_sf = self._gen_cnn_layer_info(model_size_info)
+		x_dim = self._input_info['x_dims'][sub_id]
+		t_dim = x_dim[0]
+		f_dim = x_dim[1]
+		input_shape = tf.reshape(self.get_input(ClassifierBase.get_x_name(sub_id)),
+									[-1, x_dim[0], x_dim[1], 1])
+		with tf.variable_scope('DS-CNN{}'.format(sub_id)) as sc:
+			end_points_collection = sc.name + '_end_points'
+			with slim.arg_scope([slim.convolution2d,
+								 slim.separable_convolution2d],
+								activation_fn=None,
+								weights_initializer=slim.initializers.xavier_initializer(),
+								biases_initializer=slim.init_ops.zeros_initializer(),
+								outputs_collections=[end_points_collection]):
+				with slim.arg_scope([slim.batch_norm],
+									is_training=self._is_training,
+									decay=0.96,
+									updates_collections=None,
+									activation_fn=tf.nn.relu):
+					for layer_no in range(num_layers):
+						if layer_no==0:
+							net = slim.convolution2d(input_shape, conv_feat[layer_no],\
+												[conv_kt[layer_no], conv_kf[layer_no]], stride=[conv_st[layer_no], conv_sf[layer_no]], padding='SAME', scope='conv_1')
+							net = slim.batch_norm(net, scope='conv/batch_norm')
+						else:
+							net = depthwise_separable_conv2(net, conv_feat[layer_no], 
+												kernel_size = [conv_kt[layer_no],conv_kf[layer_no]], 
+												stride = [conv_st[layer_no],conv_sf[layer_no]], 
+												w_scale_l1=0,
+												w_scale_l2=0,
+												b_scale_l1=0,
+												b_scale_l2=0,
+												sc='conv_ds_{}'.format(layer_no)
+												)
 	
-		self._is_training = is_training
-		self._PAD = PAD
- 		self._START = START
-		self._EOS = EOS
-		self._batch_size = None
-		self._embedding_dim = embedding_dim
-		self._vocab_size = vocab_size
-# 		self._dropout = dropout
-		self._n_encoder_layers = n_encoder_layers
-		self._n_decoder_layers = n_decoder_layers
-		self._encoder_hidden_size = encoder_hidden_size
-		self._decoder_hidden_size = decoder_hidden_size
-		self._encoder_cell_type = encoder_cell_type
-		self._decoder_cell_type = decoder_cell_type
-		self._is_bidrection = is_bidrection
-		self._is_attention = is_attention
-		self._beam_width = beam_width
-		self._attention_type = attention_type
-		self._attention_num_units = attention_num_units
-		self._attention_depth = attention_depth
-		self._max_decode_iter_size = max_decode_iter_size
-# 		self._init_learning_rate = init_learning_rate
-# 		self._decay_steps = decay_steps
-# 		self._decay_factor = decay_factor
-		self._minimum_learning_rate = minimum_learning_rate
-		self._inputs = {}
-		if not is_restored:
-			self._build_graph(input_batch)
-# 	def _current_lr(self):
+
+						t_dim = math.ceil(t_dim/float(conv_st[layer_no]))
+						f_dim = math.ceil(f_dim/float(conv_sf[layer_no]))
+
+					net = slim.avg_pool2d(net, [t_dim, f_dim], scope='avg_pool')
+				net = tf.squeeze(net, [1, 2], name='SpatialSqueeze')
+		return net
 		
-	def _build_train_step(self, loss):
-		with tf.variable_scope('train'):
-			lr = tf.train.exponential_decay(
-				self._init_learning_rate,
-				self.train_step,
-				self._decay_steps,
-				self._decay_factor,
-				staircase=True
-			)
-			lr = tf.clip_by_value(
-				lr,
-				self._minimum_learning_rate,
-				self._init_learning_rate,
-				name='lr_clip'
-			)
-			self.lr = lr
-# 			opt = tf.train.GradientDescentOptimizer(self._lr)
-# 			opt = tf.train.MomentumOptimizer(self.lr, 0.9)
-# 			opt = tf.train.RMSPropOptimizer(learning_rate=0.05)
-			opt = tf.train.AdadeltaOptimizer(learning_rate=self.lr)
-# 			opt = tf.train.AdamOptimizer(learning_rate=self.lr)
-			self._opt = opt
-# 			opt = tf.train.AdagradOptimizer(learning_rate=0.01)
-			grads = tf.constant(0.0)
-			train_variables = tf.trainable_variables()
-			grads_vars = opt.compute_gradients(loss, train_variables)
-			
-# 			tf.Print(grads_vars, [grads_vars], "grads=", summarize=10000)
-			
-			for i, (grad, var) in enumerate(grads_vars):
-				grads_vars[i] = (tf.clip_by_norm(grad, 1.0), var)
-				grads += tf.reduce_sum(tf.reduce_sum(grads_vars[i][0]), name="total_grads")
-			self._grads = tf.identity(grads, name='gradient')
-
-			apply_gradient_op = opt.apply_gradients(grads_vars, global_step=self.train_step)
-			with tf.control_dependencies([apply_gradient_op]):
-				train_op = tf.no_op(name='train_step')
-
-		return train_op
+	def _build_network_output(self):
 	
-	def _build_summary(self):
-		tf.summary.scalar('sampling_rate', self.sampling_probability)
-		tf.summary.scalar('learning_rate', self.lr)
-		tf.summary.scalar('loss', self.loss)
-		tf.summary.scalar('grads', self._grads)
-		tf.summary.scalar('accuracy', self.accuracy)
-		tf.summary.scalar('accuracy_seqs', self.accuracy_seqs)
-		return tf.summary.merge_all()
-	
-	def _build_accuracy(self, decoder_result_ids, decoder_inputs, decoder_lengths):
-		with tf.variable_scope('accuracy_target'):
-			flg = tf.equal(decoder_result_ids, decoder_inputs[:, 0:tf.shape(decoder_result_ids)[1]])
-			flg = tf.cast(flg, dtype=tf.float32)
-			total_corrected = tf.reduce_sum(flg)
-			acc = tf.divide(total_corrected, tf.cast(tf.reduce_sum(decoder_lengths), dtype=tf.float32), name='acc')
-			
-			flg_s = tf.reduce_sum(flg, axis=1)
-			flg_y = tf.equal(tf.cast(flg_s, tf.int32), decoder_lengths)
-			corrected_y = tf.reduce_sum(tf.cast(flg_y, dtype=tf.float32))
-			seq_acc = tf.divide(corrected_y, tf.cast(tf.shape(decoder_result_ids)[0], dtype=tf.float32), name='seq_acc')
-# 			arr_pad = tf.zeros_like(decoder_inputs)
-# 			arr_end = tf.ones_like(decoder_inputs) * self._EOS
-# 			decoder_inputs_masked = tf.where(tf.equal(arr_pad, decoder_inputs), arr_end, decoder_inputs)
-# 			
-# 			flg_m = tf.equal(decoder_result_ids, decoder_inputs_masked[:, 0:tf.shape(decoder_result_ids)[1]])
+		label_count = self._input_info['num_cls']
 
-		return acc, seq_acc 
+		#Extract model dimensions from model_size_info
+		subnet_num = len(self._model_info["model_size_infos"])
+		outs = []
+		for id in range(subnet_num):
+# 		scope = 'DS-CNN'
+			net = self._gen_dscnn_structure(id)
+			net = tf.layers.flatten(net)
+			outs.append(net)
+		net = tf.concat(outs, axis=-1)
 		
-	def _build_loss(self, decoder_logits, decoder_inputs, decoder_lengths):
-		with tf.variable_scope('loss_target'):
-			#build decoder output, with appropriate padding and mask
-			batch_size = tf.shape(decoder_inputs)[0]
-			pads = tf.ones([batch_size, 1], dtype=tf.int32) * self._PAD
-			paded_decoder_inputs = tf.concat([decoder_inputs, pads], 1)
-			max_decoder_time = tf.reduce_max(decoder_lengths) + 1
-			decoder_target = paded_decoder_inputs[:, :max_decoder_time]
-
-			decoder_eos = tf.one_hot(decoder_lengths, depth=max_decoder_time,
-									 on_value=1, off_value=self._PAD,
-									 dtype=tf.int32)
-			decoder_target += decoder_eos
-
-			decoder_loss_mask = tf.sequence_mask(decoder_lengths + 1,
-												 maxlen=max_decoder_time,
-												 dtype=tf.float32)
-
-		with tf.variable_scope('loss'):
-			seq_loss = sequence_loss(
-				decoder_logits,
-				decoder_target,
-				decoder_loss_mask,
-				name='sequence_loss'
-			)
-			
-# 			seq_loss = tf.nn.ctc_loss(labels = decoder_target, 
-# 									inputs = decoder_logits, 
-# 									decoder_lengths, 
-# 									preprocess_collapse_repeated, 
-# 									ctc_merge_repeated,
-# 									ignore_longer_outputs_than_inputs, 
-# 									time_major)
-
-		return seq_loss
-
-	def _create_RNNLayers(self, state_size, keep_output_rate, n_encoder_layers, is_training):
-		cells = None
-		# build cell
-		if self._encoder_cell_type == 'BN_LSTM':
-			cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
-		elif self._encoder_cell_type == 'LSTM':
-			cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
-# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
-		elif self._encoder_cell_type == 'GRU':
-# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
-			cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-
-		else:
-			raise ValueError
+#  		net = slim.fully_connected(net, label_count * 2, activation_fn=tf.nn.sigmoid, scope='fc01')
+# 			net = slim.fully_connected(net, label_count * 30, activation_fn=tf.nn.relu, scope='fc02')
+		logits = slim.fully_connected(net, label_count, activation_fn=None, scope='fc1')
+		predicted_indices = tf.argmax(logits, 1)
+		return logits, predicted_indices
 		
-		cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
-		cells  = tf.nn.rnn_cell.MultiRNNCell([cells] * n_encoder_layers)
-		return cells
-	
-	def _create_biRNNLayers(self, state_size, keep_output_rate, n_encoder_layers, is_training):
-		fw_cells = None
-		bw_cells = None
-		# build cell
-		if self._encoder_cell_type == 'BN_LSTM':
-			fw_cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
-			bw_cells = BN_LSTMCell(state_size, is_training=is_training, forget_bias=1.0)
-		elif self._encoder_cell_type == 'LSTM':
-			fw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-			bw_cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
-# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_encoder_layers)]
-# 				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer())
-		elif self._encoder_cell_type == 'GRU':
-# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_encoder_layers)]
-			fw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-			bw_cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())
-		else:
-			raise ValueError
-		
-		fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
-		bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
-		
-		fw_cells  = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
-		bw_cells  = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
-		return fw_cells, bw_cells
-	
-	def _build_encoder(self, encoder_inputs, encoder_lengths):
-
-
-			# batch_size, max_time, embed_dims
-		encoder_input_vectors = encoder_inputs
-
-		with tf.variable_scope('encoder'):
-			if self._is_bidrection:
-				fw_cells, bw_cells = self._create_biRNNLayers(self._encoder_hidden_size, self._keep_output_rate, 
-																self._n_encoder_layers, self._is_training)
-				
-				(fw_output, bw_output), (fw_final_state, bw_final_state) =\
-					tf.nn.bidirectional_dynamic_rnn(
-						fw_cells, bw_cells,
-						encoder_input_vectors,
-						sequence_length=encoder_lengths,
-						time_major=False,
-						dtype=tf.float32
-					)
-
-				encoder_outputs = tf.concat([fw_output, bw_output], 2)
-				fw_final_state = fw_final_state[-1]
-				bw_final_state = bw_final_state[-1]
-				
-				if isinstance(fw_final_state, LSTMStateTuple):
-					encoder_state_c = tf.concat(
-						[fw_final_state.c, bw_final_state.c], 1)
-					encoder_state_h = tf.concat(
-						[fw_final_state.h, bw_final_state.h], 1)
-					encoder_final_state = LSTMStateTuple(encoder_state_c,
-														 encoder_state_h)
-				else:
-					encoder_final_state = tf.concat(
-						[fw_final_state, bw_final_state], 1)
-
-			else:
-				cells = self._create_RNNLayers(self._encoder_hidden_size, self._keep_output_rate, 
-																self._n_encoder_layers, self._is_training)
-				encoder_outputs, encoder_final_state = tf.nn.dynamic_rnn(
-					cells,
-					encoder_input_vectors,
-					sequence_length=encoder_lengths,
-					time_major=False,
-					dtype=tf.float32
-				)
-			return encoder_outputs, encoder_final_state
-		
-	def _build_decoder(self, encoder_outputs, encoder_final_state, encoder_lengths,
-							 decoder_inputs, decoder_lengths):
-
-		batch_size = tf.shape(decoder_inputs)[0]
-		beam_width = self._beam_width
-		tiled_batch_size = batch_size * beam_width
-
-		with tf.variable_scope('decoder_cell'):
-			state_size = self._decoder_hidden_size
-			if self._is_bidrection:
-				state_size = state_size * 2
-			
-			cells = None
-			# build cell 
-			#because decode layer is in front of the whole network, gradient vanish issue would not be serious
-			#base on efficiency, we do not add batch normalizatioin
-			if self._decoder_cell_type == 'LSTM' or self._decoder_cell_type == 'BN_LSTM':
-				cells = tf.nn.rnn_cell.LSTMCell(state_size, initializer=tf.orthogonal_initializer(), forget_bias=0.0)
-# 				cells = [tf.nn.rnn_cell.LSTMCell(state_size) for _ in range(self._n_decoder_layers)]
-# 			elif self._decoder_cell_type == 'BN_LSTM':
-# 				cells = BN_LSTMCell(state_size, is_training=True, forget_bias=1.0)
-			elif self._decoder_cell_type == 'GRU':
-# 				cells = [tf.nn.rnn_cell.GRUCell(state_size) for _ in range(self._n_decoder_layers)]
-				cells = tf.nn.rnn_cell.GRUCell(state_size, initializer=tf.orthogonal_initializer())	
-			else:
-				raise ValueError
-			
-			cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self._keep_output_rate)
-#  			cells = tf.nn.rnn_cell.MultiRNNCell([cells] * self._n_decoder_layers)
-			original_decoder_cell = cells
-
-			with tf.variable_scope('beam_inputs'):
-				tiled_encoder_outputs = tile_batch(encoder_outputs, beam_width)
-				tiled_encoder_lengths = tile_batch(encoder_lengths, beam_width)
-
-				if isinstance(encoder_final_state, LSTMStateTuple):
-					tiled_encoder_final_state_c = tile_batch(encoder_final_state.c, beam_width)
-					tiled_encoder_final_state_h = tile_batch(encoder_final_state.h, beam_width)
-					tiled_encoder_final_state = LSTMStateTuple(tiled_encoder_final_state_c,
-															   tiled_encoder_final_state_h)
-				else:
-					tiled_encoder_final_state = tile_batch(encoder_final_state, beam_width)
-
-			if self._is_attention:
-				attention_name = self._attention_type
-				if attention_name == 'Bahdanau':
-					attention_fn = BahdanauAttention
-				elif attention_name == 'Luong':
-					attention_fn = LuongAttention
-				else:
-					raise ValueError
-
-				with tf.variable_scope('attention'):
-					attention_mechanism = attention_fn(
-						self._attention_num_units,
-# 						normalize=True,
-						encoder_outputs,
-						encoder_lengths,
-						name="attention_fn"
-					)
-					decoder_cell = AttentionWrapper(
-						cells,
-						attention_mechanism,
-						attention_layer_size=self._attention_depth,
-						output_attention=True,
-					)
-					decoder_initial_state = \
-						decoder_cell.zero_state(batch_size, tf.float32).clone(
-							cell_state=encoder_final_state
-						)
-
-				with tf.variable_scope('attention', reuse=True):
-					beam_attention_mechanism = attention_fn(
-						self._attention_num_units,
-						tiled_encoder_outputs,
-						tiled_encoder_lengths,
-						name="attention_fn"
-					)
-					beam_decoder_cell = AttentionWrapper(
-						original_decoder_cell,
-						beam_attention_mechanism,
-						attention_layer_size=self._attention_depth,
-						output_attention=True
-					)
-					tiled_decoder_initial_state = \
-						beam_decoder_cell.zero_state(tiled_batch_size, tf.float32).clone(
-							cell_state=tiled_encoder_final_state
-						)
-
-			else:
-				decoder_initial_state = encoder_final_state
-				tiled_decoder_initial_state = decoder_cell.zero_state(tiled_batch_size, tf.float32)
-				beam_decoder_cell = decoder_cell
-
-# 		with tf.variable_scope('word_embedding', reuse=True):
-# 			word_embedding = tf.get_variable(name="word_embedding")
-			
-		with tf.variable_scope('word_embedding'):
-			word_embedding = tf.get_variable(
-				name="word_embedding",
-				shape=(self._vocab_size, self._embedding_dim),
-				initializer=xavier_initializer(),
-				dtype=tf.float32
-			)
-
-		with tf.variable_scope('decoder'):
-			out_func = layers_core.Dense(
-				self._vocab_size, use_bias=False)
-
-			goes_decoder_inputs = self._add_goes(decoder_inputs)
-			
-			#using teaching force without schedule			
-			embed_decoder_inputs = tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
-# 
-# 			training_helper = TrainingHelper(
-# 				embed_decoder_inputs,
-# 				decoder_lengths + 1
-# 			)
-
-			
-			
-# 			def embedding_lookup(ids):
-# 				tf.nn.embedding_lookup(word_embedding, goes_decoder_inputs)
-
-			training_helper = ScheduledEmbeddingTrainingHelper_p(
-				embed_decoder_inputs,
-				decoder_lengths + 1,
-				word_embedding,
-				self.sampling_probability,
-			)
-			
-			decoder = BasicDecoder(
-				decoder_cell,
-				training_helper,
-				decoder_initial_state,
-				output_layer=out_func,
-			)
-
-			decoder_outputs, decoder_state, decoder_sequence_lengths = \
-				dynamic_decode(
-					decoder,
-					scope=tf.get_variable_scope(),
-					maximum_iterations=self._max_decode_iter_size
-				)
-
-			tf.get_variable_scope().reuse_variables()
-
-# 			self.embed_decoder_inputs = embed_decoder_inputs
-# 			self.base_next_input = decoder._helper.base_next_input_val
-# 			self.select_sample = decoder._helper.select_sample_val
-# 			self.next_inputs = decoder._helper.next_inputs_val
-
-			
-			start_tokens = tf.ones([batch_size], dtype=tf.int32) * self._START
-			beam_decoder = BeamSearchDecoder(
-				beam_decoder_cell,
-				word_embedding,
-				start_tokens,
-				self._EOS,
-				tiled_decoder_initial_state,
-				beam_width,
-				output_layer=out_func,
-			)
-
-			beam_decoder_outputs, beam_decoder_state, beam_decoder_sequence_lengths = \
-				dynamic_decode(
-					beam_decoder,
-					scope=tf.get_variable_scope(),
-					maximum_iterations=self._max_decode_iter_size
-				)
-
-		decoder_results = {
-			'decoder_outputs': decoder_outputs[0],
-			#notice: if we use decoder with schedule sampling, many invalid flg "-1" would be set
-			# into the output_ids vectors, thus, we have to restore the real output_ids through argmax operation 
-# 			'decoder_result_ids': decoder_outputs[1],
-			'decoder_result_ids': math_ops.cast(math_ops.argmax(decoder_outputs[0], axis=-1), dtypes.int32),
-			'decoder_state': decoder_state,
-			'decoder_sequence_lengths': decoder_sequence_lengths,
-			'beam_decoder_result_ids': beam_decoder_outputs.predicted_ids,
-			'beam_decoder_scores': beam_decoder_outputs.beam_search_decoder_output.scores,
-			'beam_decoder_state': beam_decoder_state,
-			'beam_decoder_sequence_outputs': beam_decoder_sequence_lengths
-		}
-		
-#  		self.log = [self.embed_decoder_inputs]
-# 		self.log = tf.Print(training_helper.next_inputs, [training_helper.next_inputs],"next_inputs:",summarize=20,first_n=7)
-		
-		return decoder_results
-	
-	def _build_sampling_schedule(self, global_step, decay_steps=10000, learning_rate=0.9, offest=5.0, staircase=True):
-		with tf.variable_scope('sampling_schedule'):
-			learning_rate = ops.convert_to_tensor(learning_rate, name="learning_rate")
-			dtype = learning_rate.dtype
-			global_step = math_ops.cast(global_step, dtype)
-			decay_steps = math_ops.cast(decay_steps, dtype)
-
-			p = global_step / decay_steps
-			if staircase:
-				p = math_ops.floor(p)
-			with tf.variable_scope('sigmoid_sampling'):
-				sigmoid_op = 1.0 / (1.0 + math_ops.exp(offest + (-learning_rate * p)))
-				sigmoid_op = tf.add(sigmoid_op, self._init_sampling_prob)
-				sigmoid_op = tf.cond(sigmoid_op > tf.constant(0.00015,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(0.0, dtypes.float32))
-				sigmoid_op = tf.cond(sigmoid_op <= tf.constant(0.99,dtypes.float32), lambda: sigmoid_op, lambda: tf.constant(1.0, dtypes.float32))
-				sp_prob = math_ops.cast(sigmoid_op, dtype)
-				sp_prob.set_shape(())
-# 				print sp_prob.get_shape()
-		return sp_prob
-	def _build_inputs(self, input_batch):
-		
-# 		self._batch_size = tf.placeholder(shape=(), dtype=tf.int32, name='batch_size')
-# 		batch_size = self._batch_size
-		if input_batch is None:
-			self._inputs['encoder_inputs'] = tf.placeholder(
-				shape=(None, None, None), # batch_size, max_time
-				dtype=tf.int32,
-				name='encoder_inputs'
-			)
-			self._inputs['encoder_lengths'] = tf.placeholder(
-				shape=(None,),
-				dtype=tf.int32,
-				name='encoder_lengths'
-			)
-			self._inputs['decoder_inputs'] = tf.placeholder(
-				shape=(None, None), # batch_size, max_time
-				dtype=tf.int32,
-				name='decoder_inputs'
-			)
-			self._inputs['decoder_lengths'] = tf.placeholder(
-				shape=(None,),
-				dtype=tf.int32,
-				name='decoder_lengths'
-			)
-			
-			self._inputs['keep_output_rate'] = tf.placeholder(
-				dtype=tf.float32,
-				name='keep_output_rate'
-			)
-			
-			self._inputs['init_lr_rate'] = tf.placeholder(
-				dtype=tf.float32,
-				name='init_lr_rate'
-			)
-			
-			self._inputs['decay_step'] = tf.placeholder(
-				dtype=tf.int32,
-				name='decay_step'
-			)
-			
-			self._inputs['decay_factor'] = tf.placeholder(
-				dtype=tf.float32,
-				name='decay_factor'
-			)
-			
-			self._inputs['init_sampling_prob'] = tf.placeholder(
-				dtype=tf.float32,
-				name='init_sampling_prob'
-			)
-			
-			self._inputs['sp_decay_step'] = tf.placeholder(
-				dtype=tf.int32,
-				name='sp_decay_step'
-			)
-
-		else:
-			encoder_inputs, encoder_lengths, decoder_inputs, decoder_lengths = input_batch
-			encoder_inputs.set_shape([None, None, None])
-			decoder_inputs.set_shape([None, None])
-			encoder_lengths.set_shape([None])
-			decoder_lengths.set_shape([None])
-
-			self._inputs = {
-				'encoder_inputs': encoder_inputs,
-				'encoder_lengths': encoder_lengths,
-				'decoder_inputs': decoder_inputs,
-				'decoder_lengths': decoder_lengths,
-			}
-			
-		self.encoder_inputs = self._inputs['encoder_inputs']
-		self._keep_output_rate = self._inputs['keep_output_rate']
-		
-		self._init_learning_rate = self._inputs['init_lr_rate']
-		self._decay_steps = self._inputs['decay_step']
-		self._decay_factor = self._inputs['decay_factor']
-		self._init_sampling_prob = self._inputs['init_sampling_prob']
-		self._sp_decay_step = self._inputs['sp_decay_step']
-
-
-	def _build_graph(self, input_batch):
-		with tf.variable_scope('train'):
-			self.train_step = tf.Variable(0, name='global_step', trainable=False)
-		
-		self._build_inputs(input_batch)
-		
-		sampling_probability = self._build_sampling_schedule(self.train_step, self._sp_decay_step, staircase=True)
-		self.sampling_probability = tf.identity(sampling_probability, name='sampling_schedule/sampling_op')
-		encoder_outputs, encoder_state = self._build_encoder(self._inputs['encoder_inputs'], self._inputs['encoder_lengths'])
-		decoder_result = self._build_decoder(encoder_outputs, encoder_state, self._inputs['encoder_lengths'],
-											 self._inputs['decoder_inputs'], self._inputs['decoder_lengths'])
-
-		self.decoder_outputs = decoder_result['decoder_outputs']
-		self.decoder_result_ids = tf.identity(decoder_result['decoder_result_ids'], name='decoder/decoder_result_ids')
-		self.beam_search_result_ids = tf.identity(decoder_result['beam_decoder_result_ids'], name='decoder/beam_decoder_result_ids')
-		self.beam_search_scores = decoder_result['beam_decoder_scores']
-
-		seq_loss = self._build_loss(self.decoder_outputs, self._inputs['decoder_inputs'], self._inputs['decoder_lengths'])
-		self.train_op = self._build_train_step(seq_loss)
-		self.loss = tf.identity(seq_loss, name='seq_loss')
-		self.accuracy, self.accuracy_seqs = self._build_accuracy(decoder_result['decoder_result_ids'], self._inputs['decoder_inputs'], self._inputs['decoder_lengths'])
-		summary_op = self._build_summary()
-		self.summary_op = tf.identity(summary_op, name='summary_op')
-
-	def make_feed_dict(self, data_dict):
-		feed_dict = {}
-		for key in data_dict.keys():
-			try:
-				feed_dict[self._inputs[key]] = data_dict[key]
-			except KeyError:
-				raise ValueError('Unexpected argument in input dictionary!')
-		return feed_dict
-
-	def restore_from_session(self, sess):
-		self._inputs['encoder_inputs'] = sess.graph.get_tensor_by_name("encoder_inputs:0")
-		self._inputs['encoder_lengths'] = sess.graph.get_tensor_by_name("encoder_lengths:0")
-		self._inputs['decoder_inputs'] = sess.graph.get_tensor_by_name("decoder_inputs:0")
-		self._inputs['decoder_lengths'] = sess.graph.get_tensor_by_name("decoder_lengths:0")
-		self._inputs['keep_output_rate'] = sess.graph.get_tensor_by_name("keep_output_rate:0")
-		self._inputs['init_lr_rate'] = sess.graph.get_tensor_by_name("init_lr_rate:0")
-		self._inputs['decay_step'] = sess.graph.get_tensor_by_name("decay_step:0")
-		self._inputs['decay_factor'] = sess.graph.get_tensor_by_name("decay_factor:0")
-		self._inputs['init_sampling_prob'] = sess.graph.get_tensor_by_name("init_sampling_prob:0")
-		self._inputs['sp_decay_step'] = sess.graph.get_tensor_by_name("sp_decay_step:0")
-		
-		self.train_step = sess.graph.get_tensor_by_name("train/global_step:0")
-		self.sampling_probability = sess.graph.get_tensor_by_name("sampling_schedule/sampling_op:0")
-		
-
-		self.decoder_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_result_ids:0")
-		
-		self.beam_search_result_ids = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose:0")
-		self.accuracy = sess.graph.get_tensor_by_name("accuracy_target/acc:0")
-		self.accuracy_seqs = sess.graph.get_tensor_by_name("accuracy_target/seq_acc:0")
-		self.loss = sess.graph.get_tensor_by_name("seq_loss:0")
-		
-# 		self.train_op = self._build_train_step(self.loss)
-
-		
-		self.train_op = sess.graph.get_operation_by_name("train_1/train_step")
-		
-		self._grads = sess.graph.get_tensor_by_name("train_1/gradient:0")
-		self.lr = sess.graph.get_tensor_by_name("train_1/lr_clip:0")
-		
-		self.summary_op = sess.graph.get_tensor_by_name("summary_op:0")
-		self.beam_search_scores = sess.graph.get_tensor_by_name("decoder/decoder_1/transpose_1:0")
-		self.decoder_outputs = sess.graph.get_tensor_by_name("decoder/decoder/transpose:0")
