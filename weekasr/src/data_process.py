@@ -32,6 +32,8 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 import math
+import pylab as pl
+
 cfg.init()
 
 VAD = VoiceActivityDetector()
@@ -300,10 +302,11 @@ def zcr(x, sampling_rate, **arg):
 	'''
 	new features added by adam
 	'''	
+	winlen = 0.04
+	winstep=0.02
 	wlen = len(x)
-	frameSize = 256
-	overLap = 0
-	step = frameSize-overLap
+	frameSize =  int(winlen*sampling_rate)
+	step = int(winstep*sampling_rate)
 	frameNum = math.ceil(wlen/step)
 	frameNum = int(frameNum)
 	zerocr = np.zeros((frameNum,1))
@@ -313,13 +316,13 @@ def zcr(x, sampling_rate, **arg):
 		zerocr[i] = sum(curFrame[0:-1]*curFrame[1::]<=0)# plot the wave
 		
 # 	framerate = sampling_rate
-# 	
+#  	
 # 	time = np.arange(0, len(x)) * (1.0 / framerate)
 # 	pl.subplot(211)
 # 	pl.plot(time, x)
 # 	pl.ylabel("Amplitude")
-# 
-# 
+#  
+#  
 # 	time2 = np.arange(0, len(zerocr)) * (1.0*(len(x)/len(zerocr)) / framerate)
 # 	pl.subplot(212)
 # 	pl.plot(time2, zerocr)
@@ -1332,12 +1335,12 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s']
+	feat_names = ["rawwav", "zcr", 'mfcc40s']
 	label_names = ['simple', 'word', 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-	add_word_label('../data/train/ext3/', 'off', ".wav", False)
+# 	add_word_label('../data/train/ext3/', 'off', ".wav", False)
 # 	copy_and_remane(output_num=300, extract_labels=['right'], target_dir='../data/train/ext31/')
 # 	copy_and_remane(output_num=300, extract_labels=[cfg.unk_flg], target_dir='../data/train/ext32/')
 # 	copy_and_remane(output_num=200, extract_labels=['off'], target_dir='../data/train/ext33/')
@@ -1386,7 +1389,7 @@ def test():
 # 	gen_ext_feature(29, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'down')
 # 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'left')
 # 	gen_ext_feature(31, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'right')
-# 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(34, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	for i in range(15, 25):
