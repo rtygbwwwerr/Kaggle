@@ -31,8 +31,10 @@ import audioop
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
-cfg.init()
+import math
+import pylab as pl
 
+cfg.init()
 VAD = VoiceActivityDetector()
 
 def standardization(X):
@@ -294,6 +296,51 @@ def logfbank80(x, sampling_rate, **arg):
 def rawwav(x, sample_rate, **arg):
 	
 	return x
+
+
+	'''
+	#new features added by adam  ----begin
+	'''
+
+
+def zcr(x, sampling_rate, **arg):
+	
+	wlen = len(x)
+	frameSize = 256
+	overLap = 0
+	step = frameSize-overLap
+	frameNum = math.ceil(wlen/step)
+	frameNum = int(frameNum)
+	zerocr = np.zeros((frameNum,1))
+	for i in range(frameNum):
+		curFrame = x[np.arange(i*step,min(i*step+frameSize,wlen))]
+		curFrame = curFrame - np.mean(curFrame)
+		zerocr[i] = sum(curFrame[0:-1]*curFrame[1::]<=0)# plot the wave
+		
+# 	framerate = sampling_rate
+# 	
+# 	time = np.arange(0, len(x)) * (1.0 / framerate)
+# 	pl.subplot(211)
+# 	pl.plot(time, x)
+# 	pl.ylabel("Amplitude")
+# 
+# 
+# 	time2 = np.arange(0, len(zerocr)) * (1.0*(len(x)/len(zerocr)) / framerate)
+# 	pl.subplot(212)
+# 	pl.plot(time2, zerocr)
+# 	pl.ylabel("ZCR")
+# 	pl.xlabel("time (seconds)")
+# 	pl.show()
+
+		
+		
+		
+	
+	return zerocr 
+	'''
+	#new features added by adam---The End
+	'''
+
 
 def foldwav(x, sample_rate, **arg):
 	return np.reshape(x, (-1, 1600))
@@ -1265,7 +1312,7 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s']
+	feat_names = ["rawwav", "logspecgram-8000", 'zcr']
 	label_names = ['simple', 'word', 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
