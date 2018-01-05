@@ -32,9 +32,8 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 import math
-import pylab as pl
-
 cfg.init()
+
 VAD = VoiceActivityDetector()
 
 def standardization(X):
@@ -297,14 +296,10 @@ def rawwav(x, sample_rate, **arg):
 	
 	return x
 
-
-	'''
-	#new features added by adam  ----begin
-	'''
-
-
 def zcr(x, sampling_rate, **arg):
-	
+	'''
+	new features added by adam
+	'''	
 	wlen = len(x)
 	frameSize = 256
 	overLap = 0
@@ -337,11 +332,8 @@ def zcr(x, sampling_rate, **arg):
 		
 	
 	return zerocr 
-	'''
-	#new features added by adam---The End
-	'''
 
-
+	
 def foldwav(x, sample_rate, **arg):
 	return np.reshape(x, (-1, 1600))
 
@@ -601,6 +593,12 @@ def gen_input_paths(root_path="../data/ext/", file_beg_name="", file_ext_name=".
 # 	paths.append('../data/en_train.csv')
 	
 	return paths
+
+def gen_input_paths_and_names(root_path="../data/ext/", file_beg_name="", file_ext_name=".csv", mode='file'):
+	paths = gen_input_paths(root_path, file_beg_name, file_ext_name, mode)
+	names = map(lambda x: os.path.basename(x), paths)
+	return paths, names
+
 def get_file_trim(type="npz", filter_trim=None):
 	return ".{}".format(type) if (filter_trim == "") or (filter_trim is None) else "_{}.{}".format(filter_trim, type)
 
@@ -1184,12 +1182,13 @@ def detect_training_data(word_set):
 		if word in word_set:
 			print "detecting {} datas".format(word)
 			detect_outlier(path, word)
-def add_word_label(root_path, label, trim=".wav", is_addition=False):
+			
+def add_word_label(root_path, label, trim=".wav", allow_muti_labels=False):
 	paths = gen_input_paths(root_path, file_ext_name=trim)
 	for path in paths:
 		
 		
-		if not is_addition:
+		if not allow_muti_labels:
 			label_index = path.rfind('-')
 			if label_index < 0:
 				new_name = path[0:-len(trim)] + "-" + label + trim
@@ -1234,19 +1233,40 @@ def copy_suspect_data(suspect_id_dir='../data/outlier/', target_dir='../data/out
 def detect_signal_word(word, n_components=3, contamination=0.005):
 	detect_outlier('../data/train/audio/{}'.format(word), word, n_components, contamination)
 	
-def copy_and_remane(name_dict_path='../data/result_tf_dscnn_95234.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/'):
+def copy_and_remane(output_num=0, name_dict_path='../data/result_tf_dscnn_95234.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/', extract_labels=None):
+	if not os.path.exists(target_dir):
+		print "created dir:" + target_dir
+		os.mkdir(target_dir)
+
 	df = pd.read_csv(name_dict_path)
 	name_dict = {}
 	for i in range(len(df)):
 		name_dict[df.at[i, 'fname']] = df.at[i, 'plabel']
 	paths = gen_input_paths(orig_dir, file_ext_name=".wav")
+	
+	cnt = 0
 	for path in paths:
 		name = os.path.basename(path)
-		label = name_dict[name]
+		label = name_dict.get(name, None)
+		if label is None:
+			continue
+		if extract_labels is not None and label not in extract_labels:
+			continue
 		dst_name = make_new_name(path, target_dir, label)
 		shutil.copy(path, dst_name)
 		print "copy test data: {} --> {}".format(path, dst_name)
+		cnt += 1
+		if output_num > 0 and cnt >= output_num:
+			break
 	
+# def extract_test_file(label_path, extract_labels, outdir):
+# 	copy_and_remane()
+
+
+
+def gen_ext_data(input_dir, outdir, gen_num, include_labels):
+	paths, names = load_data_ext(input_dir, cfg.unk_flg, outlier_path=None, include_labels=None)
+# 	for path in paths
 	
 
 def test():
@@ -1312,13 +1332,19 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["rawwav", "logspecgram-8000", 'zcr']
+	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s']
 	label_names = ['simple', 'word', 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-# 	add_word_label('../data/train/ext27/', cfg.sil_flg_str, ".wav", True)
-# 	copy_and_remane()
+	add_word_label('../data/train/ext3/', 'off', ".wav", False)
+# 	copy_and_remane(output_num=300, extract_labels=['right'], target_dir='../data/train/ext31/')
+# 	copy_and_remane(output_num=300, extract_labels=[cfg.unk_flg], target_dir='../data/train/ext32/')
+# 	copy_and_remane(output_num=200, extract_labels=['off'], target_dir='../data/train/ext33/')
+# 	copy_and_remane(output_num=200, extract_labels=['no'], target_dir='../data/train/ext33/')
+# 	copy_and_remane(output_num=200, extract_labels=['up'], target_dir='../data/train/ext33/')
+# 	copy_and_remane(output_num=200, extract_labels=['stop'], target_dir='../data/train/ext33/')
+# 	copy_and_remane(output_num=300, extract_labels=[cfg.sil_flg], target_dir='../data/train/ext34/')
 # 	copy_suspect_data()
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
@@ -1326,9 +1352,9 @@ def test():
 # 	gen_feature('../data/outlier/no_all/', "../data/no", ['logspecgram-8000'], ['simple'], is_aggregated, is_normalization, default_label='no', outlier_path='../data/outlier/no/')
 # 	gen_feature('../data/train/audio/no/', "../data/outlier/no_test/no_test", ['logspecgram-8000'], ['name'], is_aggregated, is_normalization, default_label='no')
 # 	add_word_label("../data/outlier/neg/", 'no')
-# 	for i in range(21, 25):
-# 		gen_augmentation_data('../data/train/ext{}/'.format(i), 0, cfg.POSSIBLE_LABELS + ['silence'], True, exts=[("../data/train/ext1/", cfg.sil_flg),
-# 															("../data/train/ext2/", cfg.sil_flg)])
+# 	for i in range(15, 25):
+# 		gen_augmentation_data('../data/train/ext{}/'.format(i), 0, cfg.voc_word.wordset(), True, exts=[("../data/train/ext1/", cfg.sil_flg),
+# 															("../data/train/ext26/", cfg.unk_flg)])
 # 	extract_wordvoice()
 # 	extract_unk_from_extend(root_path="../data/trainset/", outdir="../data/train/ext11/", input_num=0)
 # 	gen_augmentation_data()
@@ -1355,7 +1381,14 @@ def test():
 # 	gen_ext_feature(13, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(14, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(25, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'on')
+# 	gen_ext_feature(28, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'go')
+# 	gen_ext_feature(29, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'down')
+# 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'left')
+# 	gen_ext_feature(31, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'right')
+# 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(34, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	for i in range(15, 25):
 # 		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 if __name__ == "__main__":
