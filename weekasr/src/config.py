@@ -3,16 +3,18 @@ class Config(object):
 	
 	
 	POSSIBLE_LABELS = 'yes no up down left right on off stop go'.split()
-	
+	FEATURE_TYPE = ['mfcc', 'logfbank', 'logspecgram', 'logfbank40']
 	voc_char = None
 	voc_word = None
 	voc_small = None
 	
 	CLS_NUM = 0
 	
-	
+	pad_sil = '<PAD>'
 	sil_flg = '<SIL>'
 	unk_flg = '<UNK>'
+	sil_flg_str = 'silence'
+	unk_flg_str = 'unknown'
 	pad_flg = Vocab.pad_flg
 	start_flg = Vocab.start_flg
 	end_flg = Vocab.end_flg
@@ -25,12 +27,12 @@ class Config(object):
 	
 	
 	init_lr_rate=1.0
-	decay_step=2000
-	decay_factor=0.85
+	decay_step=10000
+	decay_factor=0.8
 	
 	ed_keep_rate = 0.9
 	de_keep_rate = 1.0
-	keep_output_rate = 1.0
+	keep_output_rate = 0.95
 	
 	sp_decay_step = 1000
 
@@ -44,6 +46,17 @@ class Config(object):
 	max_output_len_w = 3
 	
 	dict_vocabs = {}
+	
+	down_rate = 1.0
+	feat_names = ["mfcc40s"]
+	label_names = ['word', 'fname']
+	label_test = ['name']
+	#cnn dim type:1:cnn1D, 2:cnn2D, 3:cnn3D
+	#cnn type:1:normal cnn, 2:ds_cnn
+	dscnn_model_size_mfcc = [6, 276, 10, 4, 2, 1, 276, 3, 3, 2, 2, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1]
+	dscnn_model_size_foldwav = [3, 128, 40, 4, 20, 1, 128, 4, 3, 1, 1, 128, 4, 3, 1, 1]
+	dscnn_model_size_logspecgram_16000 = [4, 176, 10, 16, 2, 2, 176, 3, 3, 2, 2, 176, 3, 3, 2, 2, 176, 3, 3, 1, 1]
+	dscnn_model_size_en = [dscnn_model_size_mfcc]
 	
 	
 	@staticmethod
@@ -60,6 +73,8 @@ class Config(object):
 		Config.dict_vocabs['y'] = Config.voc_small
 		Config.dict_vocabs['y_c'] = Config.voc_char
 		Config.dict_vocabs['y_w'] = Config.voc_word
+		
+		
 	@staticmethod
 	def i2c(i):
 		return Config.voc_char.i2w(i)
