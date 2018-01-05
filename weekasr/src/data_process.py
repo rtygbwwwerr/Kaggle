@@ -637,7 +637,7 @@ def load_data_ext(data_dir, default_label, outlier_path=None, include_labels=Non
 	paths = gen_input_paths(data_dir, file_ext_name=".wav")
 	samples = []
 	for path in paths:
-		index = path.find('-')
+		index = path.rfind('-')
 		label = default_label
 		if index > -1:
 			str = path[index + 1:-4]
@@ -1060,7 +1060,8 @@ def speech_ratio(data, sample_rate):
 
 def make_new_name(path, outdir, label):
 	name = os.path.basename(path)
-	if name.find('-') == -1:
+	label = label_to_str(label)
+	if name.rfind('-') == -1:
 		name = "{}-{}.wav".format(name[0:-4], label)
 	path = outdir + name
 	return path
@@ -1113,7 +1114,7 @@ def get_outlier_set(outliers_path="../data/outlier/"):
 
 def make_set_name(label, fname):
 	name = os.path.basename(fname)
-	index = name.find('-')
+	index = name.rfind('-')
 	if index != -1:
 		name = name[:index] + '.wav'
 	return name + "-" + label
@@ -1136,12 +1137,18 @@ def detect_training_data(word_set):
 		if word in word_set:
 			print "detecting {} datas".format(word)
 			detect_outlier(path, word)
-def add_word_label(root_path, label, trim=".wav"):
+def add_word_label(root_path, label, trim=".wav", is_addition=False):
 	paths = gen_input_paths(root_path, file_ext_name=trim)
 	for path in paths:
 		
-		label_index = path.find('-')
-		if label_index < 0:
+		
+		if not is_addition:
+			label_index = path.rfind('-')
+			if label_index < 0:
+				new_name = path[0:-len(trim)] + "-" + label + trim
+				os.rename(path, new_name)
+				print "rename: {} --> {}".format(path, new_name)
+		else:
 			new_name = path[0:-len(trim)] + "-" + label + trim
 			os.rename(path, new_name)
 			print "rename: {} --> {}".format(path, new_name)
@@ -1152,7 +1159,7 @@ def copy_suspect_data(suspect_id_dir='../data/outlier/', target_dir='../data/out
 	
 	def get_id_from_path(path):
 		fname = os.path.basename(path)
-		index = fname.find('-')
+		index = fname.rfind('-')
 		id = fname[0:-4]
 		if index >= 0:
 			id = fname[0:index]
@@ -1180,11 +1187,11 @@ def copy_suspect_data(suspect_id_dir='../data/outlier/', target_dir='../data/out
 def detect_signal_word(word, n_components=3, contamination=0.005):
 	detect_outlier('../data/train/audio/{}'.format(word), word, n_components, contamination)
 	
-def copy_and_remane(name_dict_path='../data/submission_tf_dscnn_95234_84.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/'):
+def copy_and_remane(name_dict_path='../data/result_tf_dscnn_95234.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/'):
 	df = pd.read_csv(name_dict_path)
 	name_dict = {}
 	for i in range(len(df)):
-		name_dict[df.at[i, 'fname']] = df.at[i, 'label']
+		name_dict[df.at[i, 'fname']] = df.at[i, 'plabel']
 	paths = gen_input_paths(orig_dir, file_ext_name=".wav")
 	for path in paths:
 		name = os.path.basename(path)
@@ -1193,6 +1200,8 @@ def copy_and_remane(name_dict_path='../data/submission_tf_dscnn_95234_84.csv', o
 		shutil.copy(path, dst_name)
 		print "copy test data: {} --> {}".format(path, dst_name)
 	
+	
+
 def test():
 	'''
 	label name: corresponding to 'truth Y'
@@ -1204,6 +1213,13 @@ def test():
 	
 	feature name: corresponding to input X with shape(Time, feature dimension), here Time is number of processing windows
 	options:['mfcc', 'mfcc10', 'mfcc40', 'mfcc40s', 'logfbank', 'logfbank40', 'logfbank80', "logspecgram", 'rawwav', 'foldwav']
+	The feature name in npz file will be:'x_feautureName', e.g. if input feature names:['mfcc10', 'logfbank'], 
+		extructed features will be store in corresponding keys:'x_mfcc10', 'x_logfbank'
+	
+	Specify sampling rate: using feature name + "-" + smapling rate to specify the sampling rate toward this feature.
+							e.g. gen_ext_feature(feature_names=['logfbank', 'mfcc40s', 'logspecgram-8000'], label_names=['word'], down_rate=1.0)
+							here, input feature names is: [logfbank, mfcc40s, logspecgram].The sample rate will be setted to 16000hz because the down_rate=1.0,
+							However, the feature logspecgram is appended '-8000' which means its sampling rate will be specified as 8000hz.
 	:param	mfcc:MFCC, shape=Time * 13 (large window size:0.04)
 	:param	mfcc10:MFCC, shape=Time * 10 (large window size:0.04)
 	:param	mfcc40:MFCC, shape=Time * 40 (large window size:0.04)
@@ -1217,6 +1233,14 @@ def test():
 	:param  zcr:zero-crossing rate (to do)
 	:param	TECCs:teager energy cepstrum coefficients (to do)
 	:param  TEMFCC:teager-based Mel-Frequency cepstral coefficients (to do)
+	
+	Feature concatenate: gen_XXX_feature supports concatenate into one feature vector, input features like this:
+						(name1,...,nameN). 
+						Notice:
+							1.The output feature name in npz file is '(name1,...,nameN)_x';
+							2.features will be concatenated along with the last dimension, 
+								thus, they must have the same shape except the last dimension.
+							3.mfcc10:(Time, 10);logfbank:(Time, 26), so (mfcc10, logfbank):(Time, 36)
 	
 	Feature extracting:
 	training data set:call function gen_train_feature
@@ -1246,7 +1270,8 @@ def test():
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-	copy_and_remane()
+# 	add_word_label('../data/train/ext27/', cfg.sil_flg_str, ".wav", True)
+# 	copy_and_remane()
 # 	copy_suspect_data()
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
@@ -1280,8 +1305,10 @@ def test():
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(13, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(14, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(25, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(25, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	for i in range(15, 25):
 # 		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 if __name__ == "__main__":
