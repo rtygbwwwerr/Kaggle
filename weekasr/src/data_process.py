@@ -32,7 +32,7 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 import math
-cfg.init()
+# cfg.init()
 
 VAD = VoiceActivityDetector()
 
@@ -304,17 +304,17 @@ def zcr(x, sampling_rate, **arg):
 	new features added by adam
 	'''	
 	winlen = 0.025
-	winstep=0.01
+	winstep = 0.01
 	wlen = len(x)
-	frameSize =  int(winlen*sampling_rate)
-	step = int(winstep*sampling_rate)
+	frameSize =  int(winlen * sampling_rate)
+	step = int(winstep * sampling_rate)
 	frameNum = int(math.ceil(wlen/step)) - 1
 
 	zerocr = np.zeros((frameNum, 1))
 	for i in range(frameNum):
-		curFrame = x[np.arange(i*step,min(i*step+frameSize,wlen))]
+		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
 		curFrame = curFrame - np.mean(curFrame)
-		zerocr[i] = sum(curFrame[0:-1]*curFrame[1::]<=0)# plot the wave
+		zerocr[i] = sum(curFrame[0:-1] * curFrame[1::] <= 0)# plot the wave
 		
 # 	framerate = sampling_rate
 #  	
@@ -412,6 +412,9 @@ def label_simple(label, **arg):
 def label_word(label, **arg):
 	return np.int32(cfg.w2i(label))
 
+def label_large(label, **arg):
+	return np.int32(cfg.wl2i(label))
+
 def label_word_seq(label, **arg):
 	return get_word_indies(label)
 
@@ -438,7 +441,7 @@ def make_file_name(head, type, *args):
 
 def gen_features_and_labels(data, feature_names=[], label_names=[], 
 							is_aggregated=True, is_normalization=True, 
-							down_rate=1.0, data_dir="../data/train/train"):
+							down_rate=1.0, outdir="../data/train/train"):
 
 	sampling_rate = int(cfg.sampling_rate * down_rate)
 	x, labels, fnames = read_wav_and_labels(data, is_normalization=is_normalization)
@@ -462,16 +465,16 @@ def gen_features_and_labels(data, feature_names=[], label_names=[],
 	
 	save_file = ""
 	if is_aggregated:
-		save_file = make_file_name(data_dir, "npz", sampling_rate)
+		save_file = make_file_name(outdir, "npz", sampling_rate)
 		np.savez(save_file, **data_list)
 		print "save file:{}".format(save_file)
 	else:
 		for k, v in data_list.iteritems():
 			if k.startswith("x_"):
-				save_file = make_file_name(data_dir + "_" + k, "npz", sampling_rate)
+				save_file = make_file_name(outdir + "_" + k, "npz", sampling_rate)
 				np.savez(save_file, x=v)
 			else:
-				save_file = data_dir + "_" + k + ".npz"
+				save_file = outdir + "_" + k + ".npz"
 				np.savez(save_file, y=v)
 			print "save file:{}".format(save_file)		
 	
@@ -705,7 +708,7 @@ def load_data_ext(data_dir, default_label, outlier_path=None, include_labels=Non
 	return samples		
 
 def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalization, 
-					down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None):
+					down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None, outdir="../data/train/"):
 	'''
 	:param id: ext fold id, which stores your extension data, should be a number. For example, if your data is in 
 	           dir:'data/train/ext1', you should set id = 1
@@ -715,7 +718,7 @@ def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalizat
 	'''
 
 	data = load_data_ext("../data/train/ext{}/".format(id), default_label, outlier_path=outlier_path)
-	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, "../data/train/train_ext{}".format(id))
+	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, "{}train_ext{}".format(outdir, id))
 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, len(data), id)
 	
 def gen_feature(path, outdir, feature_names, label_names, is_aggregated, is_normalization, down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None):	
@@ -1313,11 +1316,11 @@ def make_unique_name(fname, label):
 			fname_out = fname[0:index] + "_" + str(id) +"-" + label + ".wav"
 
 		id += 1
-		print id
+# 		print id
 	return fname_out
 		
-def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels=None, ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-5, 0, 5)), 
-										("shift", 0.3, (-0.1, 0.0)), ("stretch", 0.1, (0.90, 1, 1.25))]):
+def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels=None, ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-45, 0, 15)), 
+										("shift", 0.1, (-0.02, 0.0)), ("stretch", 0.1, (0.90, 1, 1.25))]):
 	samples = load_data_ext(input_dir, cfg.unk_flg, outlier_path=None, include_labels=include_labels, exclude_labels=exclude_labels)
 	dict_data = {}
 	for sample in samples:
@@ -1346,7 +1349,7 @@ def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels
 			if len(wav) > cfg.sampling_rate:
 				print "skip overlength file {}".format(fname)
 				continue
-# 			wav = wav.astype(np.float64)
+			wav = wav.astype(np.float64)
 			wav = random_call(wav, ops)
 			
 			wav = wav.astype(np.int16)
@@ -1362,9 +1365,10 @@ def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels
 def test():
 	'''
 	label name: corresponding to 'truth Y'
-	options:['simple', 'word', 'word_seq', 'char_seq', 'name', 'fname']
+	options:['simple', 'word', 'large', 'word_seq', 'char_seq', 'name', 'fname']
 	:param	simple:the simplest label, only include 12 labels, cfg.POSSIBLE_LABELS + [<SIL>,<UNK>]
 	:param	word:include all word appearing in the training set
+	:param  large:include all words appearing in the whole data set
 	:param	word_seq:word sequence for seq2seq model, which will warp each item with <SIL>, 'off' -> <SIL> off <SIL>
 	:param	char_seq:char sequence for seq2seq model, split word in word_seq by space, 'off' -> <SIL> o f f <SIL>
 	
@@ -1423,25 +1427,31 @@ def test():
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
 	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s',]
-	label_names = ['simple', 'word', 'fname', 'name']
+	label_names = ['simple', 'word', 'large' 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-# 	count_label_info('../data/train/ext3/', '../data/train/ext3.csv')
+# 	count_label_info('../data/train/ext15/', '../data/train/ext15.csv')
 # 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 10)
 # 	gen_augmentation_data('../data/train/ext5/', input_num=100)
-	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
+# 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 	
-	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 40000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
-				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-5, 0, 5)), 
-										("shift", 0.3, (-0.03, 0.0)), ("stretch", 0.1, (0.90, 1, 1.25))])
-	gen_ext_data('../data/train/ext3/', '../data/train/ext5/', 40000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
-				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-3, 0, 3)), 
-										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.1, (0.90, 1, 1.25))])
-	
-	gen_ext_data('../data/train/ext3/', '../data/train/ext6/', 10000, include_labels=None, exclude_labels=None,
-				ops=[("mix_noise", 0.5, (0.5, 1.5)), ("shift_pitch", 0.55, (-4, 0, 4)), 
-										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.1, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
+# 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-12, 12)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
+# 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-15, 0, 15)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext5/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
+# 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-25, 0, 10)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext5/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
+# 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-8, 0, 8)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext6/', 10000, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.5, (0.5, 1.5)), ("shift_pitch", 0.55, (-10, 10)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
 	
 	
 # 	add_word_label('../data/train/ext7/', cfg.unk_flg_str, ".wav", False)
@@ -1460,9 +1470,9 @@ def test():
 # 	gen_feature('../data/outlier/no_all/', "../data/no", ['logspecgram-8000'], ['simple'], is_aggregated, is_normalization, default_label='no', outlier_path='../data/outlier/no/')
 # 	gen_feature('../data/train/audio/no/', "../data/outlier/no_test/no_test", ['logspecgram-8000'], ['name'], is_aggregated, is_normalization, default_label='no')
 # 	add_word_label("../data/outlier/neg/", 'no')
-	for i in range(15, 20):
-		gen_augmentation_data('../data/train/ext{}/'.format(i), 0, cfg.voc_word.wordset(), True, exts=[("../data/train/ext1/", cfg.sil_flg),
-															("../data/train/ext26/", cfg.unk_flg)])
+# 	for i in range(15, 17):
+# 		gen_augmentation_data('../data/train/ext{}/'.format(i), 0, cfg.voc_word.wordset(), True, exts=[("../data/train/ext1/", cfg.sil_flg),
+# 															("../data/train/ext26/", cfg.unk_flg)])
 # 	extract_wordvoice()
 # 	extract_unk_from_extend(root_path="../data/trainset/", outdir="../data/train/ext11/", input_num=0)
 # 	gen_augmentation_data()
@@ -1472,17 +1482,18 @@ def test():
 # # 	out_wav = signal.resample(wav, 8000)
 # 	print len(out_wav)
 # 	wavfile.write("../data/train/0a7c2a8d_nohash_0.wav", 8000, out_wav)
-# 	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
+	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
 # 	gen_test_feature(feat_names, is_aggregated, is_normalization, down_rate)
 # 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
+	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
@@ -1497,7 +1508,7 @@ def test():
 # 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(34, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-	for i in range(15, 20):
+	for i in range(15, 17):
 		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outlier_path='../data/outlier/orig/')
 		
 		
