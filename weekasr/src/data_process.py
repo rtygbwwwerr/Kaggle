@@ -32,9 +32,11 @@ import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 import math
-# cfg.init()
+import pylab as pl
+ 
+cfg.init()
 
-VAD = VoiceActivityDetector()
+# VAD = VoiceActivityDetector()
 
 def standardization(X):
 # 	x_t = preprocessing.scale(X, axis=0, with_mean=True, with_std=True, copy=True)
@@ -309,12 +311,36 @@ def zcr(x, sampling_rate, **arg):
 	frameSize =  int(winlen * sampling_rate)
 	step = int(winstep * sampling_rate)
 	frameNum = int(math.ceil(wlen/step)) - 1
-
+	
 	zerocr = np.zeros((frameNum, 1))
-	for i in range(frameNum):
+
+	#method 3
+	def createframe(i):
 		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
 		curFrame = curFrame - np.mean(curFrame)
-		zerocr[i] = sum(curFrame[0:-1] * curFrame[1::] <= 0)# plot the wave
+		diffs = np.diff(curFrame > 0)
+		nonzeros = np.nonzero(diffs)
+		return len(nonzeros[0])
+ 	
+	zerocr=[createframe(i) for i in range(frameNum)]	
+# 
+
+	
+	#method 1
+# 	for i in range(frameNum):
+# 		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
+# 		curFrame = curFrame - np.mean(curFrame)
+# 		zerocr[i]= sum(curFrame[0:-1] * curFrame[1::] <= 0)
+	
+# 	method 2
+#  	for i in range(frameNum):
+#  		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
+#  		curFrame = curFrame - np.mean(curFrame)
+#  		diffs = np.diff(curFrame > 0)
+#  		nonzeros = np.nonzero(diffs)
+#  		zerocr[i] = len(nonzeros[0])
+
+#     
 		
 # 	framerate = sampling_rate
 #  	
@@ -322,8 +348,8 @@ def zcr(x, sampling_rate, **arg):
 # 	pl.subplot(211)
 # 	pl.plot(time, x)
 # 	pl.ylabel("Amplitude")
-#  
-#  
+# #   
+# #   
 # 	time2 = np.arange(0, len(zerocr)) * (1.0*(len(x)/len(zerocr)) / framerate)
 # 	pl.subplot(212)
 # 	pl.plot(time2, zerocr)
@@ -1426,8 +1452,9 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s',]
-	label_names = ['simple', 'word', 'large' 'fname', 'name']
+	feat_names = ["zcr"]
+#  	label_names = ['simple', 'word', 'large' 'fname', 'name']
+ 	label_names = ['simple', 'word','fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
@@ -1482,18 +1509,18 @@ def test():
 # # 	out_wav = signal.resample(wav, 8000)
 # 	print len(out_wav)
 # 	wavfile.write("../data/train/0a7c2a8d_nohash_0.wav", 8000, out_wav)
-	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
+# 	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
 # 	gen_test_feature(feat_names, is_aggregated, is_normalization, down_rate)
 # 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
-	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
+	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
@@ -1508,8 +1535,8 @@ def test():
 # 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(34, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-	for i in range(15, 17):
-		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outlier_path='../data/outlier/orig/')
+# 	for i in range(15, 17):
+# 		gen_ext_feature(i, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outlier_path='../data/outlier/orig/')
 		
 		
 if __name__ == "__main__":
