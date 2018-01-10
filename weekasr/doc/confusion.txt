@@ -1,0 +1,8 @@
+There are some confusing word pairs in dataset, like go-down, up-off. To prefectly differeniate them, we must use one-on-one classifiers. 
+confusing pairs:
+up-off
+go-down
+go-dog
+no-nine
+go-no
+down-dog
