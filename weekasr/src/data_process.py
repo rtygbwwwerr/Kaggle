@@ -18,6 +18,7 @@ from vad import VoiceActivityDetector
 from sklearn.decomposition import PCA
 import shutil
 from shutil import copyfile
+import scipy
 sys.path.append('../../')
 from base import data_util
 from config import Config as cfg
@@ -33,6 +34,7 @@ from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 import math
 import pylab as pl
+from scipy.fftpack import dct
  
 cfg.init()
 
@@ -284,8 +286,7 @@ def mfbank80(x, sampling_rate):
 	return feat
 
 def mfcc10(x, sampling_rate, **arg):
-	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=10)
-
+	return  mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=10)
 def mfcc40(x, sampling_rate, **arg):
 	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=40)
 
@@ -316,52 +317,146 @@ def zcr(x, sampling_rate, **arg):
 
 	#method 3
 	def createframe(i):
-		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
+		idx = np.arange(i * step, min(i * step + frameSize, wlen))
+		curFrame = x[idx]
 		curFrame = curFrame - np.mean(curFrame)
 		diffs = np.diff(curFrame > 0)
 		nonzeros = np.nonzero(diffs)
 		return len(nonzeros[0])
  	
 	zerocr=[createframe(i) for i in range(frameNum)]	
-# 
-
-	
-	#method 1
-# 	for i in range(frameNum):
-# 		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
-# 		curFrame = curFrame - np.mean(curFrame)
-# 		zerocr[i]= sum(curFrame[0:-1] * curFrame[1::] <= 0)
-	
-# 	method 2
-#  	for i in range(frameNum):
-#  		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
-#  		curFrame = curFrame - np.mean(curFrame)
-#  		diffs = np.diff(curFrame > 0)
-#  		nonzeros = np.nonzero(diffs)
-#  		zerocr[i] = len(nonzeros[0])
-
-#     
-		
-# 	framerate = sampling_rate
-#  	
-# 	time = np.arange(0, len(x)) * (1.0 / framerate)
-# 	pl.subplot(211)
-# 	pl.plot(time, x)
-# 	pl.ylabel("Amplitude")
-# #   
-# #   
-# 	time2 = np.arange(0, len(zerocr)) * (1.0*(len(x)/len(zerocr)) / framerate)
-# 	pl.subplot(212)
-# 	pl.plot(time2, zerocr)
-# 	pl.ylabel("ZCR")
-# 	pl.xlabel("time (seconds)")
-# 	pl.show()
-
-		
-		
-		
-	
 	return zerocr 
+
+
+def get_STATKEngery(bpx,sampling_rate,winlen=0.03,win_shift=0.01):
+	
+	def TKEnergy_operator(t):
+		y=np.cos(2*np.pi*t)
+		yMinus=np.cos(2*np.pi*(t-1))
+		yPlus=np.cos(2*np.pi*(t+1))
+		TKX = y**2 - yMinus*yPlus;
+		return TKX
+	
+	nfilt = len(bpx)
+	wavelen = len(bpx[0])
+	frameSize =  int(winlen * sampling_rate)
+	step = int(win_shift * sampling_rate)
+	frameNum = int(math.ceil(sampling_rate/step)) - 1
+# 	
+	E = np.zeros((nfilt,frameNum))
+	for i in range(nfilt):
+	    for j in range(frameNum):
+		   curFrame = bpx[i][np.arange(j * step, min(j * step + frameSize, wavelen))]
+		   Et = [ TKEnergy_operator(xt) for xt in curFrame ]
+		   E[i][j] = sum(Et)
+       
+	return E
+
+
+
+
+def erb_space(lowfreq, highfreq, nflit):
+
+	earQ = 9.26449                  
+	minBW = 24.7  
+	low = float(lowfreq)  
+	high = float(highfreq)  
+	N=float(nflit)  
+	cf = -(earQ * minBW) + np.exp((np.arange(N+1)[1:]) * (-np.log(high + earQ * minBW) + np.log(low + earQ * minBW)) / (N)) * (high + earQ * minBW)  
+	return cf  
+
+
+
+def  get_gammatone_filterbank(fs,center_freqs,band_width = 1.0):
+		  
+     erb = 6.23*(center_freqs/1000)**2 + 93.39*(center_freqs/1000)+28.5
+     fs=float(fs)
+     T = 1.0/fs
+     B = 1.019*2*np.pi*erb
+     arg = 2*center_freqs*np.pi*T
+     vec = np.exp(2j*arg)
+     A0 = T
+     A2 = 0.0
+     B0 = 1.0
+     B1 = -2*np.cos(arg)/np.exp(B*T)
+     B2 = np.exp(-2*B*T)
+     
+     rt_pos = np.sqrt(3 + 2**1.5)
+     rt_neg = np.sqrt(3 - 2**1.5)
+     common = -T * np.exp(-(B * T))
+     k11 = np.cos(arg) + rt_pos * np.sin(arg)
+     k12 = np.cos(arg) - rt_pos * np.sin(arg)
+     k13 = np.cos(arg) + rt_neg * np.sin(arg)
+     k14 = np.cos(arg) - rt_neg * np.sin(arg)
+     A11 = common * k11
+     A12 = common * k12
+     A13 = common * k13
+     A14 = common * k14
+     gain_arg = np.exp(1j * arg - B * T)
+     gain = np.abs(
+			(vec - gain_arg * k11)
+			* (vec - gain_arg * k12)
+			* (vec - gain_arg * k13)
+		      * (vec - gain_arg * k14)
+		      * (  T * np.exp(B*T)
+		         / (-1 / np.exp(B*T) + 1 + vec * (1 - np.exp(B*T)))
+		        )**4
+		    )	
+     allfilts = np.ones_like(center_freqs)
+     fcoefs = np.column_stack([
+	    A0*allfilts, A11, A12, A13, A14, A2*allfilts,
+	    B0*allfilts, B1, B2,
+	    gain
+	])
+     return fcoefs
+	    
+
+
+def bandpass_signal(x, coefs=0.0):
+	
+	
+	output = np.zeros((coefs[:,9].shape[0], x.shape[0]))   
+	gain = coefs[:, 9]
+
+	As1 = coefs[:, (0, 1, 5)]
+
+	As2 = coefs[:, (0, 2, 5)]
+
+	As3 = coefs[:, (0, 3, 5)]
+  
+	As4 = coefs[:, (0, 4, 5)]
+ 
+	Bs = coefs[:, 6:9]
+	
+	
+	for idx in range(0, coefs.shape[0]):
+			y1 = signal.lfilter(As1[idx], Bs[idx], x)
+			y2 = signal.lfilter(As2[idx], Bs[idx], y1)
+			y3 = signal.lfilter(As3[idx], Bs[idx], y2)
+			y4 = signal.lfilter(As4[idx], Bs[idx], y3)
+	output[idx, :] = y4/gain[idx]
+	
+	return output
+
+def TECCs(x, sample_rate, **arg):
+	
+	nfft=1024
+	winlen=0.04
+	winstep=0.02
+	nfilt=49
+	numcep=10
+	lowfreq=300 
+	highfreq=3000
+	cfs = erb_space(lowfreq, highfreq,nfilt)
+	filterbanks = get_gammatone_filterbank(sample_rate,cfs)
+	bpx = bandpass_signal(x,filterbanks)
+	feat = get_STATKEngery(bpx,sample_rate,winlen=0.03,win_shift=0.01)
+	feat = np.log(feat)
+	feat = dct(feat, type=2, axis=1, norm='ortho')[:,:numcep]
+	
+	return feat
+
+
 
 	
 def foldwav(x, sample_rate, **arg):
@@ -744,7 +839,7 @@ def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalizat
 	'''
 
 	data = load_data_ext("../data/train/ext{}/".format(id), default_label, outlier_path=outlier_path)
-	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, "{}train_ext{}".format(outdir, id))
+	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, outdir)
 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, len(data), id)
 	
 def gen_feature(path, outdir, feature_names, label_names, is_aggregated, is_normalization, down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None):	
@@ -1452,7 +1547,7 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["zcr"]
+	feat_names = ["TECCs"]
 #  	label_names = ['simple', 'word', 'large' 'fname', 'name']
  	label_names = ['simple', 'word','fname', 'name']
 	is_normalization = True
@@ -1520,7 +1615,7 @@ def test():
 # 	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
-	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
