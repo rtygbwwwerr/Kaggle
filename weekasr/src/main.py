@@ -1506,11 +1506,11 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=300, input_num=0, 
 # 					file_head="tf_att_seq2seq", 
 # 					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
-	file_head = "tf_crnn_mfccs"
+	file_head = "tf_dsnn_l"
 	max_acc_str = None
 	model_pre = None
 	vocab = cfg.voc_large
-	model_size_info=cfg.dscnn_model_size_en,
+	model_size_info=[cfg.dscnn_model_size_logspecgram_8000_l]
 # 	experiment_keras_outlier()
 # 	run_outlier_detector('../data/train/audio/no/', '../checkpoints/keras_outlier_no_weights.26-0.0015-0.9998-0.0110-1.0000.hdf5')
 # 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
@@ -1518,9 +1518,9 @@ if __name__ == "__main__":
 					batch_size=256, nb_epoch=50, input_num=0, model_size_info=model_size_info,
 					file_head=file_head, pre_train_model_prefix=model_pre, is_debug=False)
 # 	model_util.plot_epoch("../checkpoints/{}_{}_epoch.txt".format(file_head, cfg.feat_names[0]), "../checkpoints/epoch_no_outlier_3.jpg")
-# 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
-# 	file_head = file_head + "_" + max_acc_str 	
-# 	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, model_size_info=model_size_info, batch_size=256)
+	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
+	file_head = file_head + "_" + max_acc_str 	
+	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, model_size_info=model_size_info, batch_size=256)
 
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_l_mfcc40s_epoch.txt", "../checkpoints/epoch_en_l.jpg")
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_w_mfcc40s_epoch.txt", "../checkpoints/epoch_en_w.jpg")
