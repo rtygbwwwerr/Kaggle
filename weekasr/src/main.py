@@ -66,7 +66,9 @@ def run_en_submission(data_names, model_func, vocab, file_type, model_path):
 	print(model.summary())
 	submission(model, [x, x_wav], fnames, '../data/submission_en.csv')
 	
-def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_test_data, input_size=0, batch_size=256):
+def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_test_data, 
+						input_size=0, model_size_info=cfg.dscnn_model_size_en,
+						batch_size=256):
 	
 	data_list = data_process.get_data_from_files("../data/test/", cfg.down_rate, cfg.feat_names, cfg.label_test, input_size)
 	fnames = data_list[-1]
@@ -74,7 +76,7 @@ def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_f
 	
 	model_info = {}
 	model_info['opt'] = 'adadelta'
- 	model_info['model_size_infos'] = cfg.dscnn_model_size_en
+ 	model_info['model_size_infos'] = model_size_info
 	input_info = {}
 	input_info['num_cls'] = vocab.size
 	input_info['x_dims'] = []
@@ -155,7 +157,8 @@ def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_f
 	print "Test stack_training:%d, file:%s"%(len(fnames), file)
 	
 	
-def run_valid(vocab, file_head, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_data, input_size=0, batch_size=256):
+def run_valid(vocab, file_head, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_data, input_size=0, 
+				model_size_info=cfg.dscnn_model_size_en, batch_size=256):
 	
 	data_valid = data_process.get_data_from_files("../data/eval/", cfg.down_rate, cfg.feat_names, cfg.label_names, input_size)
 	x_list = data_valid[0:-2]
@@ -164,7 +167,7 @@ def run_valid(vocab, file_head, model_prefix, model_func, data_gen_func=model_ut
 	
 	model_info = {}
 	model_info['opt'] = 'adadelta'
- 	model_info['model_size_infos'] = cfg.dscnn_model_size_en
+ 	model_info['model_size_infos'] = model_size_info
 	input_info = {}
 	input_info['num_cls'] = vocab.size
 	input_info['x_dims'] = []
@@ -1507,20 +1510,21 @@ if __name__ == "__main__":
 	max_acc_str = None
 	model_pre = None
 	vocab = cfg.voc_large
+	model_size_info=cfg.dscnn_model_size_en,
 # 	experiment_keras_outlier()
 # 	run_outlier_detector('../data/train/audio/no/', '../checkpoints/keras_outlier_no_weights.26-0.0015-0.9998-0.0110-1.0000.hdf5')
 # 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
-	experiment_tf_classifier(vocab, model_util.gen_tf_classify_data, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_crnn, 
-					batch_size=256, nb_epoch=50, input_num=0, model_size_info=cfg.crnn_model_size,
+	experiment_tf_classifier(vocab, model_util.gen_tf_classify_data, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn, 
+					batch_size=256, nb_epoch=50, input_num=0, model_size_info=model_size_info,
 					file_head=file_head, pre_train_model_prefix=model_pre, is_debug=False)
 # 	model_util.plot_epoch("../checkpoints/{}_{}_epoch.txt".format(file_head, cfg.feat_names[0]), "../checkpoints/epoch_no_outlier_3.jpg")
 # 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
 # 	file_head = file_head + "_" + max_acc_str 	
-# 	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, batch_size=256)
+# 	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, model_size_info=model_size_info, batch_size=256)
 
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_l_mfcc40s_epoch.txt", "../checkpoints/epoch_en_l.jpg")
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_w_mfcc40s_epoch.txt", "../checkpoints/epoch_en_w.jpg")
-# 	run_submission_tf(file_type=ftype, input_size = 100,
+# 	run_submission_tf(file_type=ftype, input_size = 100, model_size_info=model_size_info,
 # 					model_prefix="../model/tf/tf_att_seq2seq_logspecgram_8000.166-0.00080-0.99590-0.94902.ckpt-42828", 
 # 					model_func=model_maker_tf.make_tf_AttentionSeq2Seq)
 # 	run_submission(['x', 'names'], False, model_maker_keras.make_rnn1, vocab, ftype, '../checkpoints/keras_rnn_gru_weights.24-0.1139-0.9580-0.1305-0.9477.hdf5')
