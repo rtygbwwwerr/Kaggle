@@ -10,6 +10,7 @@ from macpath import split
 from datetime import datetime
 import seaborn as sns
 import matplotlib.pyplot as plt
+from scipy.io import wavfile
 
 def isDigitType(value):
 	is_flg = isinstance(value, int) or isinstance(value, float) or \
@@ -94,6 +95,30 @@ def info_gain(datalist, column_name, label_name):
 	print 'IGN of %s:%f'%(column_name, IGN)
 	return IGN
 
+
+
+def gen_input_paths(root_path="../data/ext/", file_beg_name="", file_ext_name=".csv", mode='file'):
+	'''
+	param:
+	mode:'file':only get files' path, 
+		'fold':only get folds' path, 
+		'all':get paths of all items,
+		default='file'
+	'''
+	list_path = os.listdir(root_path)
+	paths = []
+	for path in list_path:
+		file_path = os.path.join(root_path, path)
+		
+		if path.startswith(file_beg_name) and path.endswith(file_ext_name):
+			if mode == 'file' and os.path.isfile(file_path):
+				paths.append(file_path)
+			elif mode == 'fold' and not os.path.isfile(file_path):
+				paths.append(file_path)
+			elif mode == 'all':
+				paths.append(file_path)
+	
+	return paths
 # def call_feature_func(data, is_normalized, *features):
 # 	frame = sys._getframe(1)
 # 	code = frame.f_code
