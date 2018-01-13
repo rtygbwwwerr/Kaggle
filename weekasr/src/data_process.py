@@ -18,7 +18,6 @@ from vad import VoiceActivityDetector
 from sklearn.decomposition import PCA
 import shutil
 from shutil import copyfile
-import scipy
 sys.path.append('../../')
 from base import data_util
 from config import Config as cfg
@@ -32,13 +31,74 @@ import audioop
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
+from base.data_util import gen_input_paths
 import math
-import pylab as pl
-from scipy.fftpack import dct
- 
+# import pylab as pl
+import datetime, time
 cfg.init()
 
-# VAD = VoiceActivityDetector()
+VAD = VoiceActivityDetector()
+
+def make_if_not_exist(dir):
+	if not os.path.exists(dir):
+		print "created dir:" + dir
+		os.mkdir(dir)
+		
+def pad_audio(samples, max_len=cfg.sampling_rate):
+	if len(samples) >= max_len: 
+		return samples
+	else: 
+		N = max_len - len(samples)
+		pad_left = N / 2
+		pad_right = N - pad_left
+		return np.pad(samples, pad_width=(pad_left, pad_right), mode='constant', constant_values=(0, 0))
+
+def read_wav(fname, is_divide_max=True):
+	sr, wav = wavfile.read(fname)
+	wav = pad_audio(wav)
+	if is_divide_max:
+		wav = wav.astype(np.float32) / np.iinfo(np.int16).max
+	return sr, wav
+
+def init_fake_noise(name=None, path='../data/train/ext0/'):
+	noises = []
+	if name == None:
+		name = ""
+	paths = gen_input_paths(path, file_beg_name=name, file_ext_name='.wav')	
+	
+	for path in paths:
+		_, wav = read_wav(path, True)
+		noises.append(wav)
+	return noises
+
+def init_noise_array(paths):
+	
+	data = []
+	for path in paths:
+		wpaths = gen_input_paths(path, file_ext_name=".wav")
+		for fname in wpaths:
+			if '-' not in fname:
+				_, wav = wavfile.read(fname)
+				wav = wav.astype(np.float32) / np.iinfo(np.int16).max
+				
+				# be aware, some files are shorter than 1 sec!
+				if len(wav) < cfg.sampling_rate:
+					continue
+				N = len(wav) / cfg.sampling_rate
+				for i in range(N):
+					data.append(wav[i*cfg.sampling_rate:(i+1)*cfg.sampling_rate])
+	print "build up {} items' noise set.".format(len(data))
+	return data
+
+noise_array = init_noise_array(['../data/train/audio/_background_noise_'])
+noise_dict = {}
+noise_dict['doing_the_dishes'] = init_fake_noise('doing_the_dishes')
+noise_dict['dude_miaowing'] = init_fake_noise('dude_miaowing')
+noise_dict['exercise_bike'] = init_fake_noise('exercise_bike')
+noise_dict['pink_noise'] = init_fake_noise('pink_noise')
+noise_dict['running_tap'] = init_fake_noise('running_tap')
+noise_dict['white_noise'] = init_fake_noise('white_noise')
+noise_dict['real'] = init_fake_noise(name=None, path='../data/train/ext1/')
 
 def standardization(X):
 # 	x_t = preprocessing.scale(X, axis=0, with_mean=True, with_std=True, copy=True)
@@ -120,15 +180,15 @@ def custom_fft(y, fs):
 
 	
 def logspecgram(x, sample_rate, window_size=20,
-                 step_size=10, eps=1e-10):
+					  step_size=10, eps=1e-10):
 	nperseg = int(round(window_size * sample_rate / 1e3))
 	noverlap = int(round(step_size * sample_rate / 1e3))
 	freqs, times, spec = signal.spectrogram(x,
-	                                fs=sample_rate,
-	                                window='hann',
-	                                nperseg=nperseg,
-	                                noverlap=noverlap,
-	                                detrend=False)
+											  fs=sample_rate,
+											  window='hann',
+											  nperseg=nperseg,
+											  noverlap=noverlap,
+											  detrend=False)
 	return np.log(spec.T.astype(np.float32) + eps)
 
 def load_data(data_dir="../data/", outlier_path=None, include_labels=None):
@@ -177,14 +237,7 @@ def load_data(data_dir="../data/", outlier_path=None, include_labels=None):
 	print('There are {} train and {} val samples'.format(len(train), len(val)))
 	return train, val
 
-def pad_audio(samples, max_len=cfg.sampling_rate):
-	if len(samples) >= max_len: 
-		return samples
-	else: 
-		N = max_len - len(samples)
-		pad_left = N / 2
-		pad_right = N - pad_left
-		return np.pad(samples, pad_width=(pad_left, pad_right), mode='constant', constant_values=(0, 0))
+
 # 	return np.pad(samples, pad_width=(max_len - len(samples), 0), mode='constant', constant_values=(0, 0))
 
 def gen_silence_data(resampline_sil_rate=200, output="../data/train/ext0/"):
@@ -205,12 +258,7 @@ def gen_silence_data(resampline_sil_rate=200, output="../data/train/ext0/"):
 			filename = "{}{}_{}.wav".format(output, name, id)
 			wavfile.write(filename, rate, wav)
 			
-def read_wav(fname, is_divide_max=True):
-	sr, wav = wavfile.read(fname)
-	wav = pad_audio(wav)
-	if is_divide_max:
-		wav = wav.astype(np.float32) / np.iinfo(np.int16).max
-	return sr, wav
+
 
 def read_wav_and_labels(data, is_normalization=True):
 	x = []
@@ -286,7 +334,8 @@ def mfbank80(x, sampling_rate):
 	return feat
 
 def mfcc10(x, sampling_rate, **arg):
-	return  mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=10)
+	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=10)
+
 def mfcc40(x, sampling_rate, **arg):
 	return mfcc(x, sampling_rate, nfft=1024, winlen=0.04, winstep=0.02, nfilt=49, numcep=40)
 
@@ -317,16 +366,52 @@ def zcr(x, sampling_rate, **arg):
 
 	#method 3
 	def createframe(i):
-		idx = np.arange(i * step, min(i * step + frameSize, wlen))
-		curFrame = x[idx]
+		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
 		curFrame = curFrame - np.mean(curFrame)
 		diffs = np.diff(curFrame > 0)
 		nonzeros = np.nonzero(diffs)
 		return len(nonzeros[0])
  	
 	zerocr=[createframe(i) for i in range(frameNum)]	
-	return zerocr 
+# 
 
+	
+	#method 1
+# 	for i in range(frameNum):
+# 		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
+# 		curFrame = curFrame - np.mean(curFrame)
+# 		zerocr[i]= sum(curFrame[0:-1] * curFrame[1::] <= 0)
+	
+# 	method 2
+#  	for i in range(frameNum):
+#  		curFrame = x[np.arange(i * step, min(i * step + frameSize, wlen))]
+#  		curFrame = curFrame - np.mean(curFrame)
+#  		diffs = np.diff(curFrame > 0)
+#  		nonzeros = np.nonzero(diffs)
+#  		zerocr[i] = len(nonzeros[0])
+
+#	  
+		
+# 	framerate = sampling_rate
+#  	
+# 	time = np.arange(0, len(x)) * (1.0 / sampling_rate)
+# 	pl.subplot(211)
+# 	pl.plot(time, x)
+# 	pl.ylabel("Amplitude")
+# #	
+# #	
+# 	time2 = np.arange(0, len(zerocr)) * (1.0*(len(x)/len(zerocr)) / sampling_rate)
+# 	pl.subplot(212)
+# 	pl.plot(time2, zerocr)
+# 	pl.ylabel("ZCR")
+# 	pl.xlabel("time (seconds)")
+# 	pl.show()
+
+		
+		
+		
+	
+	return zerocr 
 
 def get_STATKEngery(bpx,sampling_rate,winlen=0.03,win_shift=0.01):
 	
@@ -345,11 +430,11 @@ def get_STATKEngery(bpx,sampling_rate,winlen=0.03,win_shift=0.01):
 # 	
 	E = np.zeros((nfilt,frameNum))
 	for i in range(nfilt):
-	    for j in range(frameNum):
-		   curFrame = bpx[i][np.arange(j * step, min(j * step + frameSize, wavelen))]
-		   Et = [ TKEnergy_operator(xt) for xt in curFrame ]
-		   E[i][j] = sum(Et)
-       
+		for j in range(frameNum):
+			curFrame = bpx[i][np.arange(j * step, min(j * step + frameSize, wavelen))]
+			Et = [ TKEnergy_operator(xt) for xt in curFrame ]
+			E[i][j] = sum(Et)
+		
 	return E
 
 
@@ -357,7 +442,7 @@ def get_STATKEngery(bpx,sampling_rate,winlen=0.03,win_shift=0.01):
 
 def erb_space(lowfreq, highfreq, nflit):
 
-	earQ = 9.26449                  
+	earQ = 9.26449						
 	minBW = 24.7  
 	low = float(lowfreq)  
 	high = float(highfreq)  
@@ -368,54 +453,54 @@ def erb_space(lowfreq, highfreq, nflit):
 
 
 def  get_gammatone_filterbank(fs,center_freqs,band_width = 1.0):
-		  
-     erb = 6.23*(center_freqs/1000)**2 + 93.39*(center_freqs/1000)+28.5
-     fs=float(fs)
-     T = 1.0/fs
-     B = 1.019*2*np.pi*erb
-     arg = 2*center_freqs*np.pi*T
-     vec = np.exp(2j*arg)
-     A0 = T
-     A2 = 0.0
-     B0 = 1.0
-     B1 = -2*np.cos(arg)/np.exp(B*T)
-     B2 = np.exp(-2*B*T)
-     
-     rt_pos = np.sqrt(3 + 2**1.5)
-     rt_neg = np.sqrt(3 - 2**1.5)
-     common = -T * np.exp(-(B * T))
-     k11 = np.cos(arg) + rt_pos * np.sin(arg)
-     k12 = np.cos(arg) - rt_pos * np.sin(arg)
-     k13 = np.cos(arg) + rt_neg * np.sin(arg)
-     k14 = np.cos(arg) - rt_neg * np.sin(arg)
-     A11 = common * k11
-     A12 = common * k12
-     A13 = common * k13
-     A14 = common * k14
-     gain_arg = np.exp(1j * arg - B * T)
-     gain = np.abs(
-			(vec - gain_arg * k11)
-			* (vec - gain_arg * k12)
-			* (vec - gain_arg * k13)
-		      * (vec - gain_arg * k14)
-		      * (  T * np.exp(B*T)
-		         / (-1 / np.exp(B*T) + 1 + vec * (1 - np.exp(B*T)))
-		        )**4
-		    )	
-     allfilts = np.ones_like(center_freqs)
-     fcoefs = np.column_stack([
-	    A0*allfilts, A11, A12, A13, A14, A2*allfilts,
-	    B0*allfilts, B1, B2,
-	    gain
+
+	erb = 6.23*(center_freqs/1000)**2 + 93.39*(center_freqs/1000)+28.5
+	fs=float(fs)
+	T = 1.0/fs
+	B = 1.019*2*np.pi*erb
+	arg = 2*center_freqs*np.pi*T
+	vec = np.exp(2j*arg)
+	A0 = T
+	A2 = 0.0
+	B0 = 1.0
+	B1 = -2*np.cos(arg)/np.exp(B*T)
+	B2 = np.exp(-2*B*T)
+	
+	rt_pos = np.sqrt(3 + 2**1.5)
+	rt_neg = np.sqrt(3 - 2**1.5)
+	common = -T * np.exp(-(B * T))
+	k11 = np.cos(arg) + rt_pos * np.sin(arg)
+	k12 = np.cos(arg) - rt_pos * np.sin(arg)
+	k13 = np.cos(arg) + rt_neg * np.sin(arg)
+	k14 = np.cos(arg) - rt_neg * np.sin(arg)
+	A11 = common * k11
+	A12 = common * k12
+	A13 = common * k13
+	A14 = common * k14
+	gain_arg = np.exp(1j * arg - B * T)
+	gain = np.abs(
+		(vec - gain_arg * k11)
+		* (vec - gain_arg * k12)
+		* (vec - gain_arg * k13)
+			* (vec - gain_arg * k14)
+			* (  T * np.exp(B*T)
+				/ (-1 / np.exp(B*T) + 1 + vec * (1 - np.exp(B*T)))
+			  )**4
+		 )	
+	allfilts = np.ones_like(center_freqs)
+	fcoefs = np.column_stack([
+	 A0*allfilts, A11, A12, A13, A14, A2*allfilts,
+	 B0*allfilts, B1, B2,
+	 gain
 	])
-     return fcoefs
-	    
+	return fcoefs
+		 
 
 
 def bandpass_signal(x, coefs=0.0):
 	
 	
-	output = np.zeros((coefs[:,9].shape[0], x.shape[0]))   
+	output = np.zeros((coefs[:,9].shape[0], x.shape[0]))	
 	gain = coefs[:, 9]
 
 	As1 = coefs[:, (0, 1, 5)]
@@ -439,7 +524,7 @@ def bandpass_signal(x, coefs=0.0):
 	return output
 
 def TECCs(x, sample_rate, **arg):
-	
+	from scipy.fftpack import dct
 	nfft=1024
 	winlen=0.04
 	winstep=0.02
@@ -456,9 +541,6 @@ def TECCs(x, sample_rate, **arg):
 	
 	return feat
 
-
-
-	
 def foldwav(x, sample_rate, **arg):
 	return np.reshape(x, (-1, 1600))
 
@@ -696,31 +778,7 @@ def gen_test_feature(feature_names, is_aggregated, is_normalization=True, down_r
 # 	
 # 	return x, name_list
 
-def gen_input_paths(root_path="../data/ext/", file_beg_name="", file_ext_name=".csv", mode='file'):
-	'''
-	param:
-	mode:'file':only get files' path, 
-		'fold':only get folds' path, 
-		'all':get paths of all items,
-		default='file'
-	'''
-	list_path = os.listdir(root_path)
-	
-# 	total_num = 0
-	paths = []
-	for path in list_path:
-		file_path = os.path.join(root_path, path)
-		
-		if path.startswith(file_beg_name) and path.endswith(file_ext_name):
-			if mode == 'file' and os.path.isfile(file_path):
-				paths.append(file_path)
-			elif mode == 'fold' and not os.path.isfile(file_path):
-				paths.append(file_path)
-			elif mode == 'all':
-				paths.append(file_path)
-# 	paths.append('../data/en_train.csv')
-	
-	return paths
+
 
 def gen_input_paths_and_names(root_path="../data/ext/", file_beg_name="", file_ext_name=".csv", mode='file'):
 	paths = gen_input_paths(root_path, file_beg_name, file_ext_name, mode)
@@ -832,14 +890,14 @@ def gen_ext_feature(id, feature_names, label_names, is_aggregated, is_normalizat
 					down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None, outdir="../data/train/"):
 	'''
 	:param id: ext fold id, which stores your extension data, should be a number. For example, if your data is in 
-	           dir:'data/train/ext1', you should set id = 1
+				  dir:'data/train/ext1', you should set id = 1
 	:param feature_names: features' names which would be extracted. 
 	:param label_names:data labels, as 'Y' used in your model
 	
 	'''
 
 	data = load_data_ext("../data/train/ext{}/".format(id), default_label, outlier_path=outlier_path)
-	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, outdir)
+	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, "{}train_ext{}".format(outdir, id))
 	print "completed gen ext \"{}\" feature of {} files from ext{}.".format(default_label, len(data), id)
 	
 def gen_feature(path, outdir, feature_names, label_names, is_aggregated, is_normalization, down_rate=1.0, default_label=cfg.sil_flg, outlier_path=None):	
@@ -847,41 +905,49 @@ def gen_feature(path, outdir, feature_names, label_names, is_aggregated, is_norm
 	gen_features_and_labels(data, feature_names, label_names, is_aggregated, is_normalization, down_rate, outdir)
 	print "completed gen ext \"{}\" feature of {} files from {}.".format(default_label, len(data), path)
 	
-def init_noise_array(paths):
-	
-	data = []
-	for path in paths:
-		wpaths = gen_input_paths(path, file_ext_name=".wav")
-		for fname in wpaths:
-			if '-' not in fname:
-				_, wav = wavfile.read(fname)
-				wav = wav.astype(np.float32) / np.iinfo(np.int16).max
-				
-				# be aware, some files are shorter than 1 sec!
-				if len(wav) < cfg.sampling_rate:
-					continue
-				N = len(wav) / cfg.sampling_rate
-				for i in range(N):
-					data.append(wav[i*cfg.sampling_rate:(i+1)*cfg.sampling_rate])
-	print "build up {} items' noise set.".format(len(data))
-	return data
 
-noise_array = init_noise_array(['../data/train/audio/_background_noise_',"../data/train/ext1/", "../data/train/ext2/"])
-	
-def vtlp(data, rate=1.0):
-	return data
 
-def mix_noise(data, rate=0.005):
+
+def mix_white_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'white_noise')
+
+def mix_doing_the_dishes_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'doing_the_dishes')
+
+def mix_exercise_bike_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'exercise_bike')
+
+def mix_running_tap_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'running_tap')
+
+def mix_real_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'real')
+
+def mix_pink_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'pink_noise')
+
+def mix_dude_miaowing_noise(data, rate=1.0):
+	return merge_noise(data, rate, 'dude_miaowing')
+
+def merge_noise(data, rate, name):
+	noise_set = noise_dict[name]
+	return mix_noise(data, rate, noise_set)
+
+def mix_noise(data, rate=0.005, noise_set=noise_array):
 # 	L = data.shape[-1]
 	axis = len(data.shape) - 1
 	num = 1 if axis <= 0 else data.shape[0]
 	noises = None
 	if num > 1:
-		noises = np.vstack(random.sample(noise_array, num))
+		noises = np.vstack(random.sample(noise_set, num))
 	else:
-		noises = random.sample(noise_array, num)[0]
+		noises = random.sample(noise_set, num)[0]
 	return data + noises * rate
-	
+
+
+def vtlp(data, rate=1.0):
+	return data
+
 def shift(data, rate=0.1):
 	'''
 	shift wav data, if rate > 0, the data sequence will be shift right rate*len(data), 
@@ -986,10 +1052,7 @@ def str_to_label(str):
 		label = cfg.unk_flg
 	return label
 
-def make_if_not_exist(dir):
-	if not os.path.exists(dir):
-		print "created dir:" + dir
-		os.mkdir(dir)
+
 		
 def augmentation(data, outdir='../data/train/ext14/', 
 				ops=[("mix_noise", 0.99, (1.0, 2.0)), ("shift_pitch", 1.0, (-6, 0, 6)), ("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.3, (0.85, 1, 1.25))]):
@@ -1053,7 +1116,7 @@ def augment_realtime(wav_data,
 	wav_list = map(lambda wav : random_call(wav, ops), wav_data)
 	return np.array(wav_list)
 	
-def gen_augmentation_data(outdir, input_num=0, include_labels=None, load_train_data=True, exts=None):
+def gen_augmentation_data(outdir, ops, input_num=0, include_labels=None, load_train_data=True, exts=None):
 	data = []
 	if load_train_data:
 		train, val = load_data("../data/", '../data/outlier/orig/', include_labels)
@@ -1064,7 +1127,7 @@ def gen_augmentation_data(outdir, input_num=0, include_labels=None, load_train_d
 	if input_num > 0:
 		indeies = np.random.random_integers(0, len(data), input_num)
 		data = map(lambda x : data[x], indeies)
-	augmentation(data, outdir)
+	augmentation(data, outdir, ops)
 	
 	
 def extract_unk_from_extend(root_path="../data/testset/", outdir="../data/train/ext10/", input_num=0):
@@ -1371,7 +1434,11 @@ def copy_suspect_data(suspect_id_dir='../data/outlier/', target_dir='../data/out
 def detect_signal_word(word, n_components=3, contamination=0.005):
 	detect_outlier('../data/train/audio/{}'.format(word), word, n_components, contamination)
 	
-def copy_and_remane(output_num=0, name_dict_path='../data/result_tf_dscnn_95234.csv', orig_dir='../data/test/audio/', target_dir='../data/train/ext25/', extract_labels=None):
+def copy_and_remane(output_num=0, start_index=0, threshold=0.0,
+				name_dict_path='../sub/prediction_tf_dscnn_ml_all4_88727_85.csv', 
+				orig_dir='../data/test/audio/', 
+				target_dir='../data/train/ext22/', 
+				extract_labels=None):
 	if not os.path.exists(target_dir):
 		print "created dir:" + target_dir
 		os.mkdir(target_dir)
@@ -1379,10 +1446,13 @@ def copy_and_remane(output_num=0, name_dict_path='../data/result_tf_dscnn_95234.
 	df = pd.read_csv(name_dict_path)
 	name_dict = {}
 	for i in range(len(df)):
-		name_dict[df.at[i, 'fname']] = df.at[i, 'plabel']
+		if df.at[i, 'confidence'] >= threshold:
+			name_dict[df.at[i, 'fname']] = df.at[i, 'plabel']
 	paths = gen_input_paths(orig_dir, file_ext_name=".wav")
 	
 	cnt = 0
+	
+	paths = paths[start_index:]
 	for path in paths:
 		name = os.path.basename(path)
 		label = name_dict.get(name, None)
@@ -1392,11 +1462,21 @@ def copy_and_remane(output_num=0, name_dict_path='../data/result_tf_dscnn_95234.
 			continue
 		dst_name = make_new_name(path, target_dir, label)
 		shutil.copy(path, dst_name)
-		print "copy test data: {} --> {}".format(path, dst_name)
 		cnt += 1
+		print "copy test data {}: {} --> {}".format(cnt, path, dst_name)
+		
 		if output_num > 0 and cnt >= output_num:
 			break
-
+def copy_special_labels(dirs, include_labels=None):
+	for orig_dir, target_dir in dirs:
+		make_if_not_exist(target_dir)
+		datas = load_data_ext(orig_dir, cfg.unk_flg, include_labels=include_labels)
+		for label, fname in datas:
+			new_fname = make_new_name(fname, target_dir, label)
+# 			new_fname = make_unique_name(new_fname, label)
+			shutil.copy(fname, new_fname)
+			print "copy = {} = data: {} --> {}".format(label, fname, new_fname)
+			
 def count_label_info(input_dir, outdir=None):
 
 	samples = load_data_ext(input_dir, cfg.unk_flg)
@@ -1445,7 +1525,7 @@ def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels
 	samples = load_data_ext(input_dir, cfg.unk_flg, outlier_path=None, include_labels=include_labels, exclude_labels=exclude_labels)
 	dict_data = {}
 	for sample in samples:
-		label = sample[0]
+		label = label_to_str(sample[0])
 		path = sample[1]
 		
 		if label in dict_data:
@@ -1481,8 +1561,123 @@ def gen_ext_data(input_dir, outdir, gen_num, include_labels=None, exclude_labels
 			cnt += 1
 			
 # 	for path in paths
+def move_ext_data(tar_id, include_label, fold_ids=[1, 2, 23, 24]):
 	
+	
+	dirs = []
+	for org in fold_ids:
+		dirs.append(('../data/train/ext{}/'.format(org), '../data/train/ext{}/'.format(tar_id)))
+	copy_special_labels(dirs, [include_label])
 
+def copy_files_accord_date(orig_path, dist_path, file_ext_name=".wav", end_time='2018-01-09 19:57:35'):
+	paths = gen_input_paths(orig_path, file_ext_name=file_ext_name)
+# 	copy_files = []
+	cnt = 0
+	if end_time is not None:
+		end = time.mktime(time.strptime(end_time, '%Y-%m-%d %H:%M:%S'))
+		for path in paths:
+			mtime = os.path.getmtime(path)
+			
+			if mtime > end:
+				new_fname = dist_path + os.path.basename(path)
+				shutil.copy(path, new_fname)
+				cnt += 1
+				print "copy file {}:{} --> {}".format(cnt, path, new_fname)
+			else:
+				print datetime.datetime.fromtimestamp(mtime)
+
+def find_label_and_id(path):
+	fname = os.path.basename(path)
+	index = fname.rfind("-")
+	label = cfg.unk_flg
+	id = fname[0:-4]
+	if index > -1:
+		label = fname[index + 1:-4]
+		id = fname[0:index]
+	return label, id
+def compare_and_move(truth_path, src_path, dst_path, is_copy=True):
+	paths = gen_input_paths(src_path, file_ext_name=".wav")
+	name_dict = {}
+	for fname in paths:
+		label, id = find_label_and_id(fname)
+		name_dict[id] = label
+	cnt = 0
+	paths = gen_input_paths(truth_path, file_ext_name=".wav")
+	for fname in paths:
+		label_truth, id = find_label_and_id(fname)
+		if id in name_dict and label_truth != name_dict[id]:
+			orig_name = src_path + id + '-' + name_dict[id] + '.wav'
+			dst_name = dst_path + id + '-' + label_truth + '.wav'
+			cnt += 1
+			if is_copy:
+				shutil.copy(orig_name, dst_name)
+				print "copy file {}:{} --> {}".format(cnt, orig_name, dst_name)
+			else:
+				shutil.move(orig_name, dst_name)
+				print "move file {}:{} --> {}".format(cnt, orig_name, dst_name)
+				
+def copy_duplicated_files(src_path, dst_path, is_copy=True):
+	paths = gen_input_paths(src_path, file_ext_name=".wav")
+	name_dict = {}
+	for fname in paths:
+		label, id = find_label_and_id(fname)
+		if id in name_dict:
+			name_dict[id].append(label)
+		else:
+			name_dict[id] = [label]
+	
+	cnt = 0
+	for id, labels in name_dict.iteritems():
+		if len(labels) > 1:
+			for label in labels:
+				cnt += 1
+				orig_name = src_path + id + '-' + label + '.wav'
+				dst_name = dst_path + id + '-' + label + '.wav'
+				if is_copy:
+					shutil.copy2(orig_name, dst_name)
+					print "copy file {}:{} --> {}".format(cnt, orig_name, dst_name)
+				else:
+					shutil.move(orig_name, dst_name)
+					print "move file {}:{} --> {}".format(cnt, orig_name, dst_name)
+					
+def compare_train_and_test_data(outdir='../data/train/ext35/'):
+	import os,sys,md5
+	train, val = load_data('../data/', outlier_path=None)
+	data_train = train + val
+	data_test = load_test_data("../data/test/audio/")
+	cnt = 0
+	index = 0
+	for (label, fname) in data_train:
+		for (label_t, fname_t) in data_test:
+			f1 = open(fname, 'r')
+			f2 = open(fname_t, 'r')
+			index += 1
+			if index % 100000 == 0:
+				print "now is {}".format(index)
+			if md5.new(f1.read()).digest() == md5.new(f2.read()).digest():
+				cnt += 1
+				print "{}={}".format(fname, fname_t)
+				new_name = make_new_name(fname_t, outdir, label)
+				shutil.copy2(fname_t, new_name)
+				print "copy file {}:{} --> {}".format(cnt, fname_t, new_name)
+				
+def copy_error_files(df_pre, outdir='../data/train/ext33/'):
+# 	df_wrong = df_pre[df_pre['plabel'] != df_pre['truth']]
+	cnt = 0
+	for i in range(len(df_pre)):
+		plabel = df_pre.at[i, 'plabel']
+		truth = df_pre.at[i, 'truth']
+		if plabel != truth:
+			fname = df_pre.at[i, 'fname']
+			name = os.path.basename(fname)
+			index = name.find('-')
+			if index > -1:
+				name = name[0:index]
+			cnt += 1
+			new_fname = '{}{}-{}-{}.wav'.format(outdir, name, label_to_str(plabel), label_to_str(truth))
+			shutil.copy(fname, new_fname)
+			print "copy wrong data {}: {} --> {}".format(cnt, fname, new_fname)
+			
 def test():
 	'''
 	label name: corresponding to 'truth Y'
@@ -1547,20 +1742,57 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["TECCs"]
-#  	label_names = ['simple', 'word', 'large' 'fname', 'name']
- 	label_names = ['simple', 'word','fname', 'name']
+	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s', 'zcr']
+	label_names = ['simple', 'word', 'large', 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-# 	count_label_info('../data/train/ext15/', '../data/train/ext15.csv')
-# 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 10)
-# 	gen_augmentation_data('../data/train/ext5/', input_num=100)
-# 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
+# 	compare_train_and_test_data()
+# 	copy_duplicated_files(src_path='../data/train/ext32/', dst_path='../data/train/ext34/', is_copy=False)
+# 	compare_and_move(truth_path='../data/train/ext2/', src_path='../data/train/ext32/', dst_path='../data/train/ext34/', is_copy=False)
+# 	copy_special_labels(dirs = [('../data/train/ext1/','../data/train/ext31/')], include_labels=[cfg.sil_flg])
+# 	add_word_label("../data/train/ext1/", cfg.sil_flg_str)
 	
-# 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
-# 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-12, 12)), 
-# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 10)
+# 	gen_augmentation_data('../data/train/ext6/', ops=[
+# 					("mix_noise", 0.98, (1000, 8000)), 
+# 					("shift_pitch", 0.95, (-5.5, 5.5)), 
+# 					("shift", 0.1, (-0.03, 0.0))], 
+# 					input_num=0)
+# 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
+# 	gen_ext_data('../data/train/ext31/', '../data/train/ext35/', 1700, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.9, (1000, 5000)), 
+# 					("shift_pitch", 0.95, (-4.5, 4.5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 5000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_running_tap_noise", 0.9, (2000, 8000)), 
+# 					("shift_pitch", 0.95, (-5, 5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 5000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_pink_noise", 0.9, (2000, 8000)), 
+# 					("shift_pitch", 0.95, (-5, 5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 5000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_white_noise", 0.9, (2000, 8000)), 
+# 					("shift_pitch", 0.95, (-5, 5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 5000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_doing_the_dishes_noise", 0.9, (2000, 8000)), 
+# 					("shift_pitch", 0.95, (-5, 5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 5000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_exercise_bike_noise", 0.9, (2000, 8000)), 
+# 					("shift_pitch", 0.95, (-5, 5)), 
+# 					("shift", 0.1, (-0.03, 0.0))])
+# 	
+# 	gen_ext_data('../data/train/ext2/', '../data/train/ext5/', 25000, include_labels=None, exclude_labels=(cfg.voc_word.wordset() - set([cfg.unk_flg])),
+# 				ops=[("mix_noise", 1.0, (500, 3000)), 
+# 					("shift_pitch", 0.95, (-5, 5))])
+# 	
+# 	gen_ext_data('../data/train/ext4/', '../data/train/ext8/', 5000, include_labels=(cfg.voc_large.wordset() - cfg.voc_small.wordset()) | set([cfg.unk_flg, cfg.sil_flg]),
+# 				ops=[("mix_noise", 1.0, (500, 3000)), 
+# 					("shift_pitch", 0.95, (-5, 5))])
+	
 # 	gen_ext_data('../data/train/ext3/', '../data/train/ext4/', 20000, include_labels=None, exclude_labels=cfg.voc_word.wordset(),
 # 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-15, 0, 15)), 
 # 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
@@ -1571,21 +1803,45 @@ def test():
 # 				ops=[("mix_noise", 0.8, (0.5, 1.5)), ("shift_pitch", 0.95, (-8, 0, 8)), 
 # 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
 # 	
-# 	gen_ext_data('../data/train/ext3/', '../data/train/ext6/', 10000, include_labels=None, exclude_labels=None,
-# 				ops=[("mix_noise", 0.5, (0.5, 1.5)), ("shift_pitch", 0.55, (-10, 10)), 
+# 	gen_ext_data('../data/train/ext3/', '../data/train/ext20/', 2000, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.5, (0.8, 1.5)), ("shift_pitch", 0.75, (-7.5, 7.5)), 
 # 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+
+# 	gen_ext_data('../data/train/ext8/', '../data/train/ext21/', 3000, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.5, (0.8, 1.5)), ("shift_pitch", 0.75, (-5.5, 5.5)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext23/', '../data/train/ext25/', 5000, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.5, (0.8, 1.5)), ("shift_pitch", 0.75, (-5.5, 5.5)), 
+# # 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext24/', '../data/train/ext25/', 5000, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_noise", 0.5, (0.8, 1.5)), ("shift_pitch", 0.75, (-5.5, 5.5)), 
+# 										("shift", 0.1, (-0.03, 0.0)), ("stretch", 0.0, (0.90, 1, 1.25))])
+# 	gen_ext_data('../data/train/ext30/', '../data/train/ext31/', 10, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_white_noise", 1.0, (4000, 5000))])
+# 	gen_ext_data('../data/train/ext30/', '../data/train/ext31/', 10, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_pink_noise", 1.0, (5000, 6000))])
 	
+# 	gen_ext_data('../data/train/ext30/', '../data/train/ext31/', 10, include_labels=None, exclude_labels=None,
+# 				ops=[("mix_running_tap_noise", 1.0, (7000, 8000))])
 	
 # 	add_word_label('../data/train/ext7/', cfg.unk_flg_str, ".wav", False)
-
-# 	copy_and_remane(output_num=300, extract_labels=['right'], target_dir='../data/train/ext31/')
-# 	copy_and_remane(output_num=300, extract_labels=[cfg.unk_flg], target_dir='../data/train/ext32/')
-# 	copy_and_remane(output_num=200, extract_labels=['off'], target_dir='../data/train/ext33/')
-# 	copy_and_remane(output_num=200, extract_labels=['no'], target_dir='../data/train/ext33/')
-# 	copy_and_remane(output_num=200, extract_labels=['up'], target_dir='../data/train/ext33/')
-# 	copy_and_remane(output_num=200, extract_labels=['stop'], target_dir='../data/train/ext33/')
-# 	copy_and_remane(output_num=300, extract_labels=[cfg.sil_flg], target_dir='../data/train/ext34/')
-# 	copy_suspect_data()
+# 	copy_files_accord_date('../data/train/ext30/', '../data/train/ext33/')
+	copy_and_remane(output_num=0, start_index=0, threshold=0.0, 
+				name_dict_path='../sub/prediction_tf_dscnn_ml_all3_91152_86.csv',
+				extract_labels=["white"],
+# 				extract_labels=(cfg.voc_large.wordset() - cfg.voc_word.wordset() - set(['follow', 'backward', 'visual', 'learn', 'withone', 'forward'])), 
+				target_dir='../data/train/ext31/')
+# # 	copy_and_remane(output_num=0, start_index=0, threshold=0.94, extract_labels=['happy'], 
+# # 				name_dict_path='../sub/prediction_tf_dscnn_ml_all4_85606.csv', target_dir='../data/train/ext31/')
+# # 	copy_and_remane(output_num=200, extract_labels=['off'], target_dir='../data/train/ext33/')
+# # 	copy_and_remane(output_num=200, extract_labels=['no'], target_dir='../data/train/ext33/')
+# # 	copy_and_remane(output_num=200, extract_labels=['up'], target_dir='../data/train/ext33/')
+# # 	copy_and_remane(output_num=200, extract_labels=['stop'], target_dir='../data/train/ext33/')
+# # 	copy_and_remane(output_num=100, start_index=70000, extract_labels=[cfg.unk_flg], target_dir='../data/train/ext28/')
+# # 	copy_suspect_data()
+# 	count_label_info('../data/train/ext2/', '../data/train/ext2.csv')
+# 	count_label_info('../data/train/ext30/', '../data/train/ext30.csv')
+	count_label_info('../data/train/ext32/', '../data/train/ext32.csv')
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
 # 	gen_feature('../data/outlier/no/', "../data/no_outlier", ['logspecgram-8000'], ['simple'], is_aggregated, is_normalization, default_label=cfg.unk_flg)
@@ -1608,24 +1864,27 @@ def test():
 # 	gen_test_feature(feat_names, is_aggregated, is_normalization, down_rate)
 # 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
+# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
-	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(13, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(14, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(20, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(21, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
+# 	gen_ext_feature(23, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(24, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(25, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'on')
-# 	gen_ext_feature(28, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'go')
+# 	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(29, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'down')
-# 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'left')
+# 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(31, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'right')
 # 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
