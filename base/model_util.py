@@ -448,7 +448,8 @@ def valid_cls_realtime_data(sess, model, X_list, Y_valid, batch_size, gen_func,
 	print "Total: {}, Accuracy: {}%".format(Y_valid.shape[0], accuracy * 100)
 	return accuracy, mat, cls_correct_rate
 
-def valid_cls_data(sess, model, X_list, Y_valid, batch_size, gen_func, batch_num=0, **args):
+def valid_cls_data(sess, model, X_list, Y_valid, batch_size, gen_func, batch_num=0, oov=None, **args):
+	from itertools import permutations
 	mat = None
 	accuracy = 0
 	predict = []
@@ -466,15 +467,30 @@ def valid_cls_data(sess, model, X_list, Y_valid, batch_size, gen_func, batch_num
 # 		print output.shape
 		predict.append(output)
 	
-		accuracy = accuracy + values['acc']
-	accuracy = accuracy / num
+	accuracy_total = 0
+	oov_set = oov
+	if oov_set is not None:
+		indies = list(permutations(oov_set, 2))
+		sum_oov_diagonal = np.sum(mat[oov_set, oov_set])
+		sum_oov_side = 0
+		for index in indies:
+			sum_oov_side += mat[index]
+		sum_base = np.sum(mat[oov_set,:])
+		
+		acc_oov = (sum_oov_side + sum_oov_diagonal) / float(sum_base)
+		print "Acc oov:{}".format(acc_oov)
+		accuracy_total = (np.sum(mat.diagonal()) + sum_oov_side) / np.sum(mat).astype(np.float32)
+	
+	accuracy = np.sum(mat.diagonal()) / np.sum(mat).astype(np.float32)
 	#plus a little number to prevent overflow
-	cls_correct_rate = mat.diagonal() / ((np.sum(mat, axis=1)).astype(np.float32) + 1e-8)
+	cls_recall = mat.diagonal() / ((np.sum(mat, axis=1)).astype(np.float32) + 1e-8)
+	cls_acc = mat.diagonal() / ((np.sum(mat, axis=0)).astype(np.float32) + 1e-8)
+	cls_f = cls_recall * cls_acc * 2.0 / (cls_recall + cls_acc)
 	predict = np.concatenate(predict)
 	print mat
-	print "class cor-rate:" + str(cls_correct_rate.tolist())
-	print "Total: {}, Accuracy: {}%".format(Y_valid.shape[0], accuracy * 100)
-	return predict, accuracy, mat, cls_correct_rate
+	print "class cor-rate:" + str(cls_recall.tolist())
+	print "Total: {}, Accuracy: {}%, Total Acc:{}%".format(Y_valid.shape[0], accuracy * 100, accuracy_total*100)
+	return predict, accuracy_total, accuracy, mat, cls_f
 
 
 def valid_seq_data(sess, model, voc, X_valid, Y_valid, PAD_ID_X, PAD_ID_Y, batch_size, gen_func, batch_num=0, **args):
