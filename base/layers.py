@@ -10,10 +10,15 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops.distributions import bernoulli
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import rnn_cell_impl
 from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import variable_scope as vs
+from tensorflow.python.ops import init_ops
+from tensorflow.python.ops import nn_ops
+from tensorflow.contrib.layers.python.layers import layers
 import tensorflow.contrib.slim as slim
 import math
 from abc import ABCMeta, abstractmethod
@@ -266,6 +271,80 @@ class BN_LSTMCell(tf.nn.rnn_cell.RNNCell):
 						 if self._state_is_tuple else tf.concat(1, [c, h]))
 
 			return h, new_state
+		
+
+class LayerNormGRUCell(rnn_cell_impl.RNNCell):
+
+	def __init__(self, num_units, forget_bias=1.0,
+							 input_size=None, activation=math_ops.tanh,
+							 layer_norm=True, norm_gain=1.0, norm_shift=0.0,
+							 dropout_keep_prob=1.0, dropout_prob_seed=None,
+							 reuse=None):
+
+		super(LayerNormGRUCell, self).__init__(_reuse=reuse)
+
+		if input_size is not None:
+			tf.logging.info("%s: The input_size parameter is deprecated.", self)
+
+		self._num_units = num_units
+		self._activation = activation
+		self._forget_bias = forget_bias
+		self._keep_prob = dropout_keep_prob
+		self._seed = dropout_prob_seed
+		self._layer_norm = layer_norm
+		self._g = norm_gain
+		self._b = norm_shift
+		self._reuse = reuse
+
+	@property
+	def state_size(self):
+		return self._num_units
+
+	@property
+	def output_size(self):
+		return self._num_units
+
+	def _norm(self, inp, scope):
+		shape = inp.get_shape()[-1:]
+		gamma_init = init_ops.constant_initializer(self._g)
+		beta_init = init_ops.constant_initializer(self._b)
+		with vs.variable_scope(scope):
+			# Initialize beta and gamma for use by layer_norm.
+			vs.get_variable("gamma", shape=shape, initializer=gamma_init)
+			vs.get_variable("beta", shape=shape, initializer=beta_init)
+		normalized = layers.layer_norm(inp, reuse=True, scope=scope)
+		return normalized
+
+	def _linear(self, args, copy):
+		out_size = copy * self._num_units
+		proj_size = args.get_shape()[-1]
+		weights = vs.get_variable("kernel", [proj_size, out_size])
+		out = math_ops.matmul(args, weights)
+		if not self._layer_norm:
+			bias = vs.get_variable("bias", [out_size])
+			out = nn_ops.bias_add(out, bias)
+		return out
+
+	def call(self, inputs, state):
+		"""LSTM cell with layer normalization and recurrent dropout."""
+		with vs.variable_scope("gates"):
+			h = state
+			args = array_ops.concat([inputs, h], 1)
+			concat = self._linear(args, 2)
+
+			z, r = array_ops.split(value=concat, num_or_size_splits=2, axis=1)
+			if self._layer_norm:
+				z = self._norm(z, "update") 
+				r = self._norm(r, "reset")
+
+		with vs.variable_scope("candidate"):
+			args = array_ops.concat([inputs, math_ops.sigmoid(r) * h], 1)
+			new_c = self._linear(args, 1)
+			if self._layer_norm:
+				new_c = self._norm(new_c, "state")
+		new_h = self._activation(new_c) * math_ops.sigmoid(z) + \
+							(1 - math_ops.sigmoid(z)) * h
+		return new_h, new_h
 		
 class ScheduledEmbeddingTrainingHelper_p(TrainingHelper):
 	"""A training helper that adds scheduled sampling.
@@ -608,7 +687,105 @@ class ModelBase(object):
 	@abstractmethod
 	def _build_summary(self):pass
 
+def gen_cnn_layer_info(model_size_info):
+	num_layers = model_size_info[0]
+	conv_type = [None]*num_layers
+	conv_feat = [None]*num_layers
+	conv_kt = [None]*num_layers
+	conv_kf = [None]*num_layers
+	conv_st = [None]*num_layers
+	conv_sf = [None]*num_layers
+	i=1
+	
+	for layer_no in range(0, num_layers):
+		conv_type[layer_no] = model_size_info[i]
+		i += 1
+		conv_feat[layer_no] = model_size_info[i]
+		i += 1
+		conv_kt[layer_no] = model_size_info[i]
+		i += 1
+		conv_kf[layer_no] = model_size_info[i]
+		i += 1
+		conv_st[layer_no] = model_size_info[i]
+		i += 1
+		conv_sf[layer_no] = model_size_info[i]
+		i += 1
+	return num_layers, conv_type, conv_feat, conv_kt, conv_kf, conv_st, conv_sf
 
+def creat_cnn_layer(input, type, conv_feat, conv_kt, conv_kf, conv_st, conv_sf, id):
+	out = None
+	if type == 1:
+		out = slim.convolution(input, conv_feat, kernel_size=[conv_kt, conv_kf], stride=[conv_st, conv_sf], padding='SAME', scope='conv_{}'.format(id))
+		out = slim.batch_norm(out, scope='conv_{}/batch_norm'.format(id))
+	elif type == 2:
+		out = depthwise_separable_conv2(input, conv_feat, 
+							kernel_size = [conv_kt,conv_kf], 
+							stride = [conv_st,conv_sf], 
+							w_scale_l1=0,
+							w_scale_l2=0,
+							b_scale_l1=0,
+							b_scale_l2=0,
+							sc='conv_ds_{}'.format(id)
+							)
+	elif type == 3:
+		out = slim.avg_pool2d(input, [conv_kt, conv_kf], [conv_st, conv_sf], padding='SAME', scope='avg_pool')
+	elif type == 4:
+		out = slim.max_pool2d(input, [conv_kt, conv_kf], [conv_st, conv_sf], padding='SAME', scope='max_pool')
+	return out
+
+def gen_rnn_layer_info(model_size_info):
+	num_layers = model_size_info[0]
+	rnn_type = model_size_info[1]
+	rnn_direction = model_size_info[2]
+	unit_n = model_size_info[3]
+	
+
+	return num_layers, rnn_type, rnn_direction, unit_n
+
+
+def get_cell_type(id):
+	if id == 1:
+		return 'LSTM'
+	elif id == 2:
+		return 'GRU'
+	elif id == 3:
+		return 'NormGRU'
+	elif id == 4:
+		return 'BN_LSTM'
+
+def create_biRNNLayers(cell_type, unit_n, layer_n, keep_output_rate=1.0, is_training=True):
+	fw_cells = None
+	bw_cells = None
+	if isinstance(cell_type, int):
+		cell_type = get_cell_type(cell_type)
+	# build cell
+	if cell_type == 'BN_LSTM':
+		fw_cells = BN_LSTMCell(unit_n, is_training=is_training, forget_bias=1.0)
+		bw_cells = BN_LSTMCell(unit_n, is_training=is_training, forget_bias=1.0)
+	elif cell_type == 'LSTM':
+		fw_cells = tf.nn.rnn_cell.LSTMCell(unit_n, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+		bw_cells = tf.nn.rnn_cell.LSTMCell(unit_n, initializer=tf.orthogonal_initializer(), forget_bias=1.0)
+# 				cells = [tf.nn.rnn_cell.LSTMCell(unit_n) for _ in range(self._n_encoder_layers)]
+# 				cells = tf.nn.rnn_cell.LSTMCell(unit_n, initializer=tf.orthogonal_initializer())
+	elif cell_type == 'GRU':
+# 				cells = [tf.nn.rnn_cell.GRUCell(unit_n) for _ in range(self._n_encoder_layers)]
+		fw_cells = tf.nn.rnn_cell.GRUCell(unit_n, kernel_initializer=tf.orthogonal_initializer())
+		bw_cells = tf.nn.rnn_cell.GRUCell(unit_n, kernel_initializer=tf.orthogonal_initializer())
+	elif cell_type == 'NormGRU':
+		fw_cells = LayerNormGRUCell(unit_n)
+		bw_cells = LayerNormGRUCell(unit_n)
+	else:
+		raise ValueError
+	
+	fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
+	bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
+	
+	fw_cells = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * layer_n)
+	bw_cells = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * layer_n)
+	
+# 	fw_cells = [fw_cells] * layer_n
+# 	bw_cells = [bw_cells] * layer_n
+	return fw_cells, bw_cells
 	
 class ClassifierBase(ModelBase):
 	
@@ -650,6 +827,13 @@ class ClassifierBase(ModelBase):
 	def _build_loss(self, logits, targets):
 		with tf.name_scope('cross_entropy'):
 # 			tf.nn.sampled_softmax_loss(weights, biases, labels, inputs, num_sampled, num_classes, num_true, sampled_values, remove_accidental_hits, partition_strategy, name)
+# 			oov_indies = self._model_info.get('oov_indeies', None)
+# 			if oov_indies is not None:
+# 				logits_oov = tf.gather(logits, oov_indies, axis=1)
+# 				logits_max = tf.reduce_max(logits_oov, axis=1)
+# 				tf.argmax(logits_oov, axis=1)
+
+
 			cp_loss = tf.nn.softmax_cross_entropy_with_logits(labels=targets, logits=logits)
 			
 			weight = self._model_info.get('cls_weight', None)
@@ -666,7 +850,7 @@ class ClassifierBase(ModelBase):
 		correct_prediction = tf.equal(predicted_indices, expected_indices)
 		
 		confusion_matrix = tf.confusion_matrix(
-		    expected_indices, predicted_indices, num_classes=self._input_info['num_cls'])
+				expected_indices, predicted_indices, num_classes=self._input_info['num_cls'])
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		
 		return accuracy, confusion_matrix
@@ -713,7 +897,11 @@ class ClassifierBase(ModelBase):
 		tf.summary.scalar('loss', self.get_op('loss'))
 		tf.summary.scalar('accuracy', self.get_op('acc'))
 		return tf.summary.merge_all()
-	
+	def _build_distribution(self, logits):
+		e_power = tf.exp(logits)
+		sum_power = tf.reduce_sum(e_power, axis=1)
+		distribution = tf.transpose(tf.transpose(e_power) / sum_power)
+		return distribution
 	def _build_graph(self):
 		self._build_inputs()
 		targets = self.get_input('Y')
@@ -721,7 +909,8 @@ class ClassifierBase(ModelBase):
 
 		logits, output = self._build_network_output()
 		self._add_op(output, "output")
-		self._add_op(output, "logits")
+		self._add_op(logits, "logits")
+		self._add_op(self._build_distribution(logits), 'distribution')
 		
 		self._add_op(self._build_loss(logits, targets), "loss")
 		
@@ -732,7 +921,61 @@ class ClassifierBase(ModelBase):
 		self._add_op(confuse_matrix, "cf_mat")
 
 		self._add_op(self._build_summary(), "summary")
-				
+		
+	def _gen_cnn_structure(self, sub_id, x_dim, model_info):
+		
+		num_layers, conv_type, conv_feat, conv_kt, conv_kf, conv_st, conv_sf = gen_cnn_layer_info(model_info)
+		
+		t_dim = x_dim[0]
+		f_dim = 1 if len(x_dim) < 2 else x_dim[1]
+		
+		
+		input_shape = tf.reshape(self.get_input(ClassifierBase.get_x_name(sub_id)),
+									[-1, t_dim, f_dim, 1])
+		with tf.variable_scope('CNN{}'.format(sub_id)) as sc:
+			end_points_collection = sc.name + '_end_points'
+			with slim.arg_scope([slim.convolution2d,
+								 slim.separable_convolution2d],
+								activation_fn=None,
+								weights_initializer=slim.initializers.xavier_initializer(),
+								biases_initializer=slim.init_ops.zeros_initializer(),
+								outputs_collections=[end_points_collection]):
+				with slim.arg_scope([slim.batch_norm],
+									is_training=self._is_training,
+									decay=0.96,
+									updates_collections=None,
+									activation_fn=tf.nn.relu):
+					
+					net = input_shape
+					for layer_no in range(num_layers):
+	
+						net = creat_cnn_layer(net, conv_type[layer_no], conv_feat[layer_no], conv_kt[layer_no], 
+												conv_kf[layer_no], conv_st[layer_no], conv_sf[layer_no], layer_no)
+						t_dim = math.ceil(t_dim/float(conv_st[layer_no]))
+						f_dim = math.ceil(f_dim/float(conv_sf[layer_no]))
+						print "({},{})".format(t_dim, f_dim)
+	# 					net = slim.avg_pool2d(net, [t_dim, f_dim], scope='avg_pool')
+	# 				net = tf.squeeze(net, [1, 2], name='SpatialSqueeze')
+		return net
+	
+	def _build_cnn_output(self, cnn_model_size_infos, input_shapes, is_flatten=True):
+		#Extract model dimensions from model_size_info
+# 		subnet_num = len(self._model_info["model_size_infos"])
+		subnet_num = len(cnn_model_size_infos)
+		outs = []
+		for id in range(subnet_num):
+# 		scope = 'DS-CNN'
+			model_info = cnn_model_size_infos[id]
+# 			input_shape = self._input_info['x_dims'][id]
+			input_shape = input_shapes[id]
+			net = self._gen_cnn_structure(id, input_shape, model_info)
+			if is_flatten:
+				net = tf.layers.flatten(net)
+			outs.append(net)
+		outs = tf.concat(outs, axis=-1)
+		return outs
+	
+	
 class Seq2SeqBase(object):
 	__metaclass__ = ABCMeta
 	
