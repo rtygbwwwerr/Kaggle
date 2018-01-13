@@ -7,6 +7,7 @@ class Config(object):
 	voc_char = None
 	voc_word = None
 	voc_small = None
+	voc_large = None
 	
 	CLS_NUM = 0
 	
@@ -48,17 +49,35 @@ class Config(object):
 	dict_vocabs = {}
 	
 	down_rate = 1.0
+	feat_names = ['rawwav', "mfcc40s", "logspecgram-8000", 'zcr']
+# 	feat_names = ["logspecgram-8000"]
 	feat_names = ["mfcc40s"]
-	label_names = ['word', 'fname']
+	label_names = ['large', 'fname']
 	label_test = ['name']
-	#cnn dim type:1:cnn1D, 2:cnn2D, 3:cnn3D
-	#cnn type:1:normal cnn, 2:ds_cnn
-	dscnn_model_size_mfcc = [6, 276, 10, 4, 2, 1, 276, 3, 3, 2, 2, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1, 276, 3, 3, 1, 1]
-	dscnn_model_size_foldwav = [3, 128, 40, 4, 20, 1, 128, 4, 3, 1, 1, 128, 4, 3, 1, 1]
-	dscnn_model_size_logspecgram_16000 = [4, 176, 10, 16, 2, 2, 176, 3, 3, 2, 2, 176, 3, 3, 2, 2, 176, 3, 3, 1, 1]
-	dscnn_model_size_en = [dscnn_model_size_mfcc]
+	'''
+	cnn type:1:normal cnn, 2:ds_cnn, 3:avg_pooling, 4:max_pooling
+	[layer_n, layer_1:{type, filter_n, filter_wide, filter_hight, stride_wide, stride_hight},..., layer_n:{type, filter_n, filter_wide, filter_hight, stride_wide, stride_hight}]
 	
 	
+	rnn type:1:LSTM, 2:GRU, 3:NormGRU, 4:BN_LSTM
+	rnn direction type:1:single-direction, 2:bi-direction
+	[layer_n, type, direction_type, unit_n]
+	'''
+	dscnn_model_size_mfcc = [6, 1, 276, 10, 4, 2, 1, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1]
+	dscnn_model_size_mfcc_s = [6, 1, 150, 10, 4, 2, 1, 2, 150, 3, 3, 2, 2, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 3, 0, 3, 3, 2, 2]
+	dscnn_model_size_foldwav = [3, 1, 128, 40, 4, 20, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1]
+	dscnn_model_size_wav = [3, 1, 128, 40, 1, 20, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1, 3, 0, 3, 3, 2, 2]
+	dscnn_model_size_zcr = [3, 1, 128, 10, 1, 4, 1, 2, 128, 3, 3, 1, 1, 2, 128, 4, 3, 1, 1]
+	dscnn_model_size_logspecgram_8000 = [6, 1, 276, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_logspecgram_16000 = [4, 1, 176, 10, 16, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1]
+	dscnn_model_size_en = [dscnn_model_size_wav, dscnn_model_size_mfcc_s, dscnn_model_size_logspecgram_8000, dscnn_model_size_zcr]
+	
+	cnn_model_size_logspecgram_8000 = [3, 1, 276, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
+	cnn_model_size_mfcc_s = [3, 1, 150, 10, 4, 2, 1, 1, 150, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
+	rnn_model_size = [2, 4, 2, 256]
+	crnn_model_size = [[cnn_model_size_mfcc_s], rnn_model_size]
+
+
 	@staticmethod
 	def get_vocab(label_name):
 		return Config.dict_vocabs[label_name]
@@ -67,14 +86,19 @@ class Config(object):
 	def init():
 		Config.voc_char = Vocab(Config.get_char_dict())
 		Config.voc_word = Vocab(Config.get_word_dict())
+		Config.voc_large = Vocab(Config.get_large_dict()) 
 		Config.voc_small = Vocab(Config.get_word_small_dict())
 		Config.CLS_NUM = Config.voc_small.size
 		
 		Config.dict_vocabs['y'] = Config.voc_small
 		Config.dict_vocabs['y_c'] = Config.voc_char
 		Config.dict_vocabs['y_w'] = Config.voc_word
-		
-		
+	
+	@staticmethod
+	def convertToSmall(w):
+		if not Config.voc_small.w_in(w):
+			return Config.unk_flg
+		return w
 	@staticmethod
 	def i2c(i):
 		return Config.voc_char.i2w(i)
@@ -90,6 +114,14 @@ class Config(object):
 	@staticmethod
 	def w2i(w):
 		return Config.voc_word.w2i(w)
+	
+	@staticmethod
+	def i2wl(i):
+		return Config.voc_large.i2w(i)
+	
+	@staticmethod
+	def wl2i(w):
+		return Config.voc_large.w2i(w)
 		
 	@staticmethod
 	def i2n(i):
@@ -148,21 +180,30 @@ class Config(object):
 		return dic_w2i
 	
 	@staticmethod
-	def get_word_dict():
-		file = open("../data/dict", "r")
+	def get_dic_from_file(path):
+		file = open(path, "r")
 		dic = Config.init_dic.copy()
 		start = len(dic)
 		word_set = set()
 		lines = file.readlines()
 		for line in lines:
 			line = line.strip()
-			word_set.add(line)
+			if line != '' or line != None:
+				word_set.add(line)
 			
 		words = list(word_set)
 		words.sort()
 		for k, v in enumerate(words):
 			dic[v] = k + start
 		print "word num total:%d"%len(dic)
-		print "load vocab_word"
+		print "load dict from:" + path
 		print dic
 		return dic
+	
+	@staticmethod
+	def get_large_dict():
+		return Config.get_dic_from_file("../data/dict_ext")
+	
+	@staticmethod
+	def get_word_dict():
+		return Config.get_dic_from_file("../data/dict")
