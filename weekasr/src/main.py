@@ -16,7 +16,7 @@ from tensorflow.python import debug as tf_debug
 from sklearn.cross_validation import train_test_split
 from base import data_util, model_util
 from keras.utils import plot_model
-
+import matplotlib.pyplot as plt
 cfg.init()
 
 def run_outlier_detector(data_dir, model_path, add_dim=True, model_func=model_maker_keras.make_cnn1):
@@ -86,7 +86,7 @@ def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_f
 	for i in range(0, len(data_list) - 1):
 		x = data_list[i]
 		input_info['x_dims'].append(x[0].shape)
-		print "input feature{} shape:{}*{}".format(i, x[0].shape[0], x[0].shape[1])
+		print "input feature{} shape:{}".format(i, x[0].shape)
 	
 	print "test items num:{}".format(len(fnames))
 	
@@ -98,8 +98,11 @@ def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_f
 
 # 	x_train = x_train[:, np.newaxis]
 # 	x_valid = x_valid[:, np.newaxis]
+	p_logits = []
 	p_labels = []
 	p_labels_sub = []
+	p_distribution = []
+	p_confidence = []
 	with tf.Session() as sess:
 		model, initial_epoch, start_step = model_util.load_tf_cls_model(sess, model_func, input_info, model_info, model_prefix)
 		for step, data_dict in enumerate(data_gen_func(x_list, batch_size,
@@ -107,23 +110,177 @@ def run_submission_cls_tf(vocab, file_head, model_prefix, model_func, data_gen_f
 													decay_factor = cfg.decay_factor, 
 													keep_output_rate=1.0, sampling_probability=0.0001)):
 			print "processing batch{}".format(step)
-			values = model.run_ops(sess, data_dict, names=['output'])
+			values = model.run_ops(sess, data_dict, names=["logits", 'output', 'distribution'])
 			label = map(lambda x : vocab.i2w(x), values['output'])
 			label_sub = map(lambda x :label2sub(x), label)
 			p_labels.extend(label)
 			p_labels_sub.extend(label_sub)
+			p_distribution.append(values['distribution'])
+			p_logits.append(values['logits'])
+			
+			p_confidence.extend(np.max(values['distribution'], axis=1))
+			
 	df_sub = pd.DataFrame({'fname':fnames, 'label':p_labels_sub})
 	df_ret = pd.DataFrame({'fname':fnames, 'label':p_labels_sub, 'plabel':p_labels})
 	print df_sub['label'].value_counts().sort_values()
 	
-	file = '../data/submission_{}.csv'.format(file_head)
+	file = '../sub/submission_{}.csv'.format(file_head)
 	print "Submission samples:%d, file:%s"%(len(fnames), file)
 	df_sub.to_csv(file, index=False)
 	
-	file = '../data/result_{}.csv'.format(file_head)
+	file = '../sub/result_{}.csv'.format(file_head)
 	print "Test samples:%d, file:%s"%(len(fnames), file)
 	df_ret.to_csv(file, index=False)
+	
+	p_logits = np.vstack(p_logits)
+	file = '../sub/prediction_{}.csv'.format(file_head)
+	prediction = merge_unk_predict(p_logits, vocab, addinfo={'fname':fnames, 'label':p_labels_sub, 'plabel':p_labels, 'confidence':p_confidence})
+	df_pre = pd.DataFrame(prediction)
+	df_pre.to_csv(file, index=False)
+	print "Test prediction:%d, file:%s"%(len(fnames), file)
+	
+	
+	p_distribution = np.vstack(p_distribution)
+	file = '../sub/distribution_{}.csv'.format(file_head)
+	prediction = merge_unk_predict(p_distribution, vocab, addinfo={'fname':fnames, 'label':p_labels_sub, 'label':p_labels})
+	df_pre = pd.DataFrame(prediction)
+	df_pre.to_csv(file, index=False)
+	print "Test distribution:%d, file:%s"%(len(fnames), file)
+	
+	p_distribution = np.vstack(p_distribution)
+	file = '../sub/stack_training_{}.csv'.format(file_head)
+	prediction = merge_unk_predict(p_distribution, vocab, addinfo={'fname':fnames, 'label':p_labels_sub})
+	df_pre = pd.DataFrame(prediction)
+	df_pre.to_csv(file, index=False)
+	print "Test stack_training:%d, file:%s"%(len(fnames), file)
+	
+	
+def run_valid(vocab, file_head, model_prefix, model_func, data_gen_func=model_util.gen_tf_classify_data, input_size=0, batch_size=256):
+	
+	data_valid = data_process.get_data_from_files("../data/eval/", cfg.down_rate, cfg.feat_names, cfg.label_names, input_size)
+	x_list = data_valid[0:-2]
+	y_valid = data_valid[-2]
+	fnames = data_valid[-1]
+	
+	model_info = {}
+	model_info['opt'] = 'adadelta'
+ 	model_info['model_size_infos'] = cfg.dscnn_model_size_en
+	input_info = {}
+	input_info['num_cls'] = vocab.size
+	input_info['x_dims'] = []
+	input_info['batch_size'] = batch_size
+	input_info['train_data_num'] = len(y_valid)
+	input_info['is_training'] = False
+	
+	for i in range(0, len(data_valid) - 1):
+		x = data_valid[i]
+		input_info['x_dims'].append(x[0].shape)
+		print "input feature{} shape:{}".format(i, x[0].shape)
+	
+	print "test items num:{}".format(len(y_valid))
+	
+	orig_label = map(lambda y:vocab.i2w(y), y_valid)
+	
+	count_value_info(y_valid, vocab, True)
+	
+	y_valid = to_categorical(y_valid.tolist(), vocab.size)
 
+	#add new dimension for channels
+# 	np.savetxt("../data/X_train.txt", x_train.astype(np.int32), '%d')
+
+# 	x_train = x_train[:, np.newaxis]
+# 	x_valid = x_valid[:, np.newaxis]
+
+	mat = None
+	p_logits = []
+	p_labels = []
+	p_labels_sub = []
+	p_distribution = []
+	with tf.Session() as sess:
+		model, initial_epoch, start_step = model_util.load_tf_cls_model(sess, model_func, input_info, model_info, model_prefix)
+		for step, data_dict in enumerate(data_gen_func(x_list, y_valid, batch_size, False, 
+													init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor, 
+													dropout_prob=cfg.keep_output_rate)):
+			print "processing batch{}".format(step)
+			values = model.run_ops(sess, data_dict, names=["logits", 'output', 'distribution', "cf_mat"])
+			label = map(lambda x : vocab.i2w(x), values['output'])
+			label_sub = map(lambda x :label2sub(x), label)
+			p_labels.extend(label)
+			p_labels_sub.extend(label_sub)
+			p_distribution.append(values['distribution'])
+			p_logits.append(values['logits'])
+
+			if mat is None:
+				mat = values['cf_mat']
+			else:
+				mat = mat + values['cf_mat']
+				
+# 	plot_confusion_matrix(mat, vocab, "../eval/cm_{}.png".format(file_head))
+	mat = convert_to_small(mat, vocab, cfg.voc_small)
+	plot_confusion_matrix(mat, cfg.voc_small, "../eval/cm_s_{}.png".format(file_head))
+	np.savetxt("../eval/con_mat_{}.txt".format(file_head), mat.astype(np.int32), '%d', delimiter='	')
+	
+	p_distribution = np.vstack(p_distribution)
+	file = '../eval/stack_training_{}.csv'.format(file_head)
+	prediction = merge_unk_predict(p_distribution, vocab, addinfo={'fname':fnames, 'label':p_labels_sub, 'plabel':p_labels, 'truth':orig_label})
+	df_pre = pd.DataFrame(prediction)
+	print df_pre['label'].value_counts().sort_values()
+	
+	
+	df_pre.to_csv(file, index=False)
+	print "Test stack_training:%d, file:%s"%(len(fnames), file)
+	data_process.copy_error_files(df_pre)
+	
+
+		
+def plot_confusion_matrix(cm, vocab, outdir, is_show=True):
+	plt.matshow(cm)
+	plt.colorbar() 
+	for x in range(len(cm)):
+		for y in range(len(cm)):
+			plt.annotate(cm[x, y], xy=(x, y), horizontalalignment='center', verticalalignment='center')
+	xlocations = np.array(range(vocab.size))
+	labels = [0] * vocab.size
+	for label, index in vocab.dic_w2i.iteritems():
+		labels[index] = label
+	plt.xticks(xlocations, labels, rotation=90)
+	plt.yticks(xlocations, labels)
+	plt.ylabel('True label')
+	plt.xlabel('Predicted label')  #
+	
+	plt.savefig(outdir)
+	if is_show:
+		plt.show()
+def convert_to_small(cm, vocab, vocab_small):
+	oov_set = make_oov_set(vocab)
+	
+	total_unk = np.sum(np.sum(cm[oov_set], axis=0)[oov_set])
+	cm[vocab.w2i(cfg.unk_flg),:] = np.sum(cm[oov_set], axis=0)
+	cm[vocab.w2i(cfg.unk_flg),vocab.w2i(cfg.unk_flg)] = total_unk
+	
+	cm_s = np.zeros((vocab_small.size, vocab_small.size))
+	
+	for i in range(vocab_small.size):
+		ii = vocab.w2i(vocab_small.i2w(i))
+		for j in range(vocab_small.size):
+			jj = vocab.w2i(vocab_small.i2w(j))
+			cm_s[i, j] = cm[ii, jj]
+
+	return cm_s
+def merge_unk_predict(prediction, vocab, addinfo=None, vocab_small=cfg.voc_small):
+	oov_indies = make_oov_set(vocab, vocab_small)
+# 	print len(oov_indies)
+# 	print prediction.shape
+	p_unk = np.max(prediction[:, oov_indies], axis=1)
+	prediction[:, vocab.w2i(cfg.unk_flg)] = p_unk
+	
+	output = {}
+	if addinfo is not None:
+		output = addinfo
+	for w in vocab_small.dic_i2w.values():
+		output[w] = prediction[:, vocab.w2i(w)]
+	return output
+	
 def label2sub(label):
 	out = label
 	if label == cfg.sil_flg:
@@ -559,9 +716,11 @@ def train_tf_classifier(
 	print "Training Start!,init step:{}".format(g_step)
 	max_acc = 0.0
 	val_accs = []
+	val_total_accs = []
 	epoch_accs = []
 	epoch_losses = []
 	epoch_cls_accs = []
+	oov_set = make_oov_set(vocab)
 	for epoch in range(initial_epoch, max_epoch):
 		print "Epoch {}".format(epoch)
 		epoch_loss = 0.
@@ -596,7 +755,7 @@ def train_tf_classifier(
 		epoch_accs.append(epoch_acc)
 		epoch_losses.append(epoch_loss)
 		print "avg_loss:{}, avg_acc:{}".format(epoch_loss, epoch_acc)
-		predict, acc_val, mat, cls_rate = model_util.valid_cls_data(sess, model, valid_x_list, Y_valid, batch_size, data_gen_func,
+		predict, acc_total, acc_val, mat, cls_rate = model_util.valid_cls_data(sess, model, valid_x_list, Y_valid, batch_size, data_gen_func, oov=oov_set,
 												 init_lr_rate = cfg.init_lr_rate, decay_step = cfg.decay_step, decay_factor = cfg.decay_factor,
 												 keep_output_rate=cfg.keep_output_rate, sampling_probability=0.0)
 # 		valid_summary_writer.add_summary(summaries_valid, epoch)
@@ -606,21 +765,33 @@ def train_tf_classifier(
 		display_cls_rate_info(cls_rate, vocab)
 		
 		val_accs.append(acc_val)
-		
-		save_epoch_info(ret_file_head, epoch_accs, val_accs, epoch_cls_accs)
-		if acc_val > max_acc:
+		val_total_accs.append(acc_total)
+		save_epoch_info(ret_file_head, epoch_accs, val_accs, val_total_accs, epoch_cls_accs)
+		if acc_total > max_acc:
 			path = "../checkpoints/tf/{prefix}.{epoch_id:02d}-{loss:.5f}-{acc:.5f}-{val_acc:.5f}.ckpt".format(prefix=ret_file_head,
 																						    epoch_id=epoch,
 																						    loss=epoch_loss,
 																						    acc=epoch_acc,
-																						    val_acc=acc_val,
+																						    val_acc=acc_total,
 																						    )
 			saved_path = saver.save(sess, path, global_step=model.get_op('global_step'))
-			print "val_acc imporved from {} to {}, saved check file:{}".format(max_acc, acc_val, saved_path)
-			max_acc = acc_val
+			print "acc_total imporved from {} to {}, saved check file:{}".format(max_acc, acc_total, saved_path)
+			max_acc = acc_total
 		else:
-			print "val_acc does not improve!skip"
-			
+			print "acc_total does not improve!skip"
+
+
+def make_oov_set(vocab_all, vocab_sub=cfg.voc_small):
+	set1 = vocab_all.wordset()
+	set2 = vocab_sub.wordset()
+	w_set = (set1 - set2) | set([cfg.unk_flg])
+	oov_set = []
+	for w in w_set:
+		oov_set.append(vocab_all.w2i(w))
+	return oov_set
+		
+	
+
 def save_val_ret(predict, fid_valid, vocab, outdir="../checkpoints/epoch_ret.csv"):
 	predict = map(lambda x: vocab.i2w(x), predict)
 	print len(fid_valid)
@@ -908,12 +1079,24 @@ def experiment_tf(data_gen_func, train_func=train_tf_model, model_func=model_mak
 			x_train, y_train, x_valid, y_valid, 
 			initial_epoch, start_step, batch_size, nb_epoch)
 	
-def count_value_info(y):
+def count_value_info(y, vocab, use_small_label_set=False):
 	N = len(y)
 	print "Total items:{}".format(N)
 	values, cnts = np.unique(y, return_counts=True)
+	dic_label = {}
 	for value, cnt in zip(values, cnts):
-		print "val :{}={} :{}".format(value, cnt, cnt / float(N))
+		
+		label = vocab.i2w(value)
+		if use_small_label_set:
+			label = cfg.convertToSmall(label)
+		
+		
+		if label in dic_label:
+			dic_label[label] += cnt
+		else:
+			dic_label[label] = cnt
+	for label, cnt in dic_label.iteritems():
+		print "label {} :{} rate:{}".format(label, cnt, cnt / float(N))
 
 
 def init_cls_weight(vocab, ws = 3.0):
@@ -933,7 +1116,7 @@ def init_cls_weight(vocab, ws = 3.0):
 	return vec.astype(np.float32)
 		
 def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn,
-					batch_size=256, nb_epoch=50, input_num=0, 
+					batch_size=256, nb_epoch=50, input_num=0, model_size_info=cfg.crnn_model_size,
 					file_head="tf_dscnn", pre_train_model_prefix=None, is_debug=False):
 	
 	x_num = len(cfg.feat_names)
@@ -949,16 +1132,16 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 	fid_train = data_train[-1]
 	fid_valid = data_valid[-1]
  	
- 	print y_valid.shape
+#  	print y_valid.shape
 # 	y_train = data_list[-4]
 # 	y_valid = data_list[-3]
 # 	fid_train = data_list[-2]
 # 	fid_valid = data_list[-1]
 	print "Training data info:"
-	count_value_info(y_train)
+	count_value_info(y_train, vocab)
 	
 	print "Valid data info:"
-	count_value_info(y_valid)
+	count_value_info(y_valid, vocab)
 	np.savetxt("../data/Y_train_org.txt", y_train.astype(np.int32), '%d')
 	np.savetxt("../data/Y_valid_org.txt", y_valid.astype(np.int32), '%d')
 # 	y_train = np.reshape(y_train, (y_train.shape[0], ))
@@ -971,7 +1154,7 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 	
 	model_info = {}
 	model_info['opt'] = 'adadelta'
- 	model_info['model_size_infos'] = cfg.dscnn_model_size_en
+ 	model_info['model_size_infos'] = model_size_info
 #  	model_info['cls_weight'] = init_cls_weight(vocab)
 #	model_info['model_size_info'] = [6, 176, 10, 4, 2, 1, 176, 3, 3, 2, 2, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1, 176, 3, 3, 1, 1]
 	input_info = {}
@@ -998,7 +1181,7 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 		train_x_list.append(x_train)
 		valid_x_list.append(x_vaild)
 		input_info['x_dims'].append(x_train[0].shape)
-		print "input feature{} shape:{}*{}".format(i, x_train[0].shape[0], x_train[0].shape[1])	
+		print "input feature{} shape:{}".format(i, x_train[0].shape)	
 		
 	print "train items num:{0}, valid items num:{1}".format(y_train.shape[0], y_valid.shape[0])
 	
@@ -1017,10 +1200,13 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 	
 			
 		log_dir = '../logs/tf/'
-		ret_file_head = "{}_{}".format(file_head,  cfg.feat_names[0])
+		ret_file_head = "{}_{}".format(file_head,  cfg.feat_names[0].replace('-', '_'))
 		train_func(data_gen_func, vocab, sess, model, log_dir, ret_file_head, 
 			train_x_list, y_train, fid_train, valid_x_list, y_valid, fid_valid,
 			initial_epoch, start_step, batch_size, initial_epoch + nb_epoch)
+		
+
+		
 
 def experiment_tf_realtime_classifier(data_gen_func, train_func=train_tf_realtime_classifier, model_func=model_maker_tf.make_tf_dscnn,
 					batch_size=256, nb_epoch=50, input_num=0, 
@@ -1265,6 +1451,9 @@ def find_best_model_file_pre(root_path, file_head):
 	if best_file is not None:
 		print "find best model:" + best_file
 	return best_file, max_acc_str
+
+
+
 if __name__ == "__main__":
 # 	test_attention_model()
 # 	test_ctc_model()
@@ -1280,7 +1469,7 @@ if __name__ == "__main__":
 # 	ftype = "mfcc40_16000"
 	
 # 	vocab = cfg.voc_small
-# 	result_analysis("../data/crnn_9500_submission.csv")
+# 	result_analysis("../sub/submission_tf_dscnn_ml_all4_92485_86.csv")
 
 # 	experiment_keras(train_func=train_keras_model, model_func=model_maker_keras.make_cnn1,
 # 					 batch_size=256, nb_epoch=100, input_num=0, file_head="keras_cnn", file_type=ftype)
@@ -1314,21 +1503,20 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=300, input_num=0, 
 # 					file_head="tf_att_seq2seq", 
 # 					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
-	file_head = "tf_dscnn"
+	file_head = "tf_crnn_mfccs"
 	max_acc_str = None
 	model_pre = None
-	vocab = cfg.voc_small
+	vocab = cfg.voc_large
 # 	experiment_keras_outlier()
 # 	run_outlier_detector('../data/train/audio/no/', '../checkpoints/keras_outlier_no_weights.26-0.0015-0.9998-0.0110-1.0000.hdf5')
-	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
-	experiment_tf_classifier(vocab, model_util.gen_tf_classify_data, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn, 
-					batch_size=256, nb_epoch=50, input_num=0, 
-					file_head=file_head, pre_train_model_prefix=model_pre, is_debug=False)
-# 	model_util.plot_epoch("../checkpoints/{}_mfcc40s_epoch.txt".format(file_head), "../checkpoints/epoch_no_outlier_3.jpg")
 # 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
-# 	file_head = file_head + "_" + max_acc_str
-# # # 	
-# 	run_submission_cls_tf(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, batch_size=256)
+	experiment_tf_classifier(vocab, model_util.gen_tf_classify_data, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_crnn, 
+					batch_size=256, nb_epoch=50, input_num=0, model_size_info=cfg.crnn_model_size,
+					file_head=file_head, pre_train_model_prefix=model_pre, is_debug=False)
+# 	model_util.plot_epoch("../checkpoints/{}_{}_epoch.txt".format(file_head, cfg.feat_names[0]), "../checkpoints/epoch_no_outlier_3.jpg")
+# 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
+# 	file_head = file_head + "_" + max_acc_str 	
+# 	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, batch_size=256)
 
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_l_mfcc40s_epoch.txt", "../checkpoints/epoch_en_l.jpg")
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_w_mfcc40s_epoch.txt", "../checkpoints/epoch_en_w.jpg")
