@@ -3,9 +3,9 @@ import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMCell, LSTMStateTuple, GRUCell
 from tensorflow.contrib.layers import xavier_initializer
 from tensorflow.contrib.seq2seq import AttentionWrapper, AttentionWrapperState, \
-									   BasicDecoder, BeamSearchDecoder, dynamic_decode, \
-									   TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
-									   BahdanauAttention, LuongAttention
+										 BasicDecoder, BeamSearchDecoder, dynamic_decode, \
+										 TrainingHelper, ScheduledEmbeddingTrainingHelper, sequence_loss, tile_batch, \
+										 BahdanauAttention, LuongAttention
 from tensorflow.python.layers import core as layers_core
 from base.layers import BN_LSTMCell, Seq2SeqBase, ScheduledEmbeddingTrainingHelper_p
 from tensorflow.python.framework import dtypes
@@ -14,8 +14,8 @@ from tensorflow.python.framework import ops
 import tensorflow.contrib.slim as slim
 import math
 
-from base.layers import ClassifierBase
-from base.layers import depthwise_separable_conv2
+from base.layers import ClassifierBase, LayerNormGRUCell, create_biRNNLayers
+from base.layers import depthwise_separable_conv2, gen_cnn_layer_info, gen_rnn_layer_info
 
 
 epsilon = 1e-9
@@ -292,10 +292,10 @@ def primaryCaps(input, filters,
 	if method == 'logistic':
 		# logistic activation unit
 		activation = tf.layers.conv2d(input, filters,
-									  kernel_size=kernel_size,
-									  strides=strides,
-									  activation=tf.nn.sigmoid,
-									  activity_regularizer=regularizer)
+										kernel_size=kernel_size,
+										strides=strides,
+										activation=tf.nn.sigmoid,
+										activity_regularizer=regularizer)
 	elif method == 'norm':
 		activation = euclidean_norm(pose)
 	else:
@@ -305,14 +305,14 @@ def primaryCaps(input, filters,
 
 
 def conv2d(in_pose,
-		   activation,
-		   filters,
-		   out_caps_shape,
-		   kernel_size,
-		   strides=(1, 1),
-		   coordinate_addition=False,
-		   regularizer=None,
-		   reuse=None):
+			 activation,
+			 filters,
+			 out_caps_shape,
+			 kernel_size,
+			 strides=(1, 1),
+			 coordinate_addition=False,
+			 regularizer=None,
+			 reuse=None):
 	'''A capsule convolutional layer.
 	Args:
 		in_pose: A tensor with shape [batch_size, in_height, in_width, in_channels] + in_caps_shape.
@@ -401,7 +401,7 @@ def conv2d(in_pose,
 
 
 # # TODO: 1. Test the `fully_connected` and `conv2d` function;
-# #	   2. Update  docs about these two function.
+# #		 2. Update	docs about these two function.
 # def fully_connected(inputs,
 # 					num_outputs,
 # 					vec_len,
@@ -421,19 +421,19 @@ def conv2d(in_pose,
 # 		...
 # 	'''
 # 	layer = CapsLayer(num_outputs=num_outputs,
-# 					  vec_len=vec_len,
-# 					  with_routing=with_routing,
-# 					  layer_type='FC')
+# 						vec_len=vec_len,
+# 						with_routing=with_routing,
+# 						layer_type='FC')
 # 	return layer.apply(inputs)
 
 
 # def conv2d(inputs,
-# 		   filters,
-# 		   vec_len,
-# 		   kernel_size,
-# 		   strides=(1, 1),
-# 		   with_routing=False,
-# 		   reuse=None):
+# 			 filters,
+# 			 vec_len,
+# 			 kernel_size,
+# 			 strides=(1, 1),
+# 			 with_routing=False,
+# 			 reuse=None):
 # 	'''A capsule convolutional layer.(Note: not tested yet)
 # 	Args:
 # 		inputs: A tensor.
@@ -443,9 +443,9 @@ def conv2d(in_pose,
 # 		...
 # 	'''
 # 	layer = CapsLayer(num_outputs=filters,
-# 					  vec_len=vec_len,
-# 					  with_routing=with_routing,
-# 					  layer_type='CONV')
+# 						vec_len=vec_len,
+# 						with_routing=with_routing,
+# 						layer_type='CONV')
 # 	return(layer(inputs, kernel_size=kernel_size, stride=strides))
 
 class CapsNet(object):
@@ -572,7 +572,7 @@ class CapsNet(object):
 
 # 		return self._inputs['X'], self._inputs['Y'], \
 # 				self._inputs['init_lr_rate'], \
-# 			   self._inputs['decay_step'], self._inputs['decay_factor']
+# 				 self._inputs['decay_step'], self._inputs['decay_factor']
 			
 	def make_feed_dict(self, data_dict):
 		feed_dict = {}
@@ -761,8 +761,8 @@ class Seq2SeqCTCModel(Seq2SeqBase):
 		num_classes = self._vocab_size
 		# Defining the cell
 		# Can be:
-		#   tf.nn.rnn_cell.RNNCell
-		#   tf.nn.rnn_cell.GRUCell
+		#	 tf.nn.rnn_cell.RNNCell
+		#	 tf.nn.rnn_cell.GRUCell
 		cell = tf.contrib.rnn.LSTMCell(num_hidden, state_is_tuple=True)
 		
 		# Stacking rnn cells
@@ -781,8 +781,8 @@ class Seq2SeqCTCModel(Seq2SeqBase):
 		# Tip: Try another initialization
 		# see https://www.tensorflow.org/versions/r0.9/api_docs/python/contrib.layers.html#initializers
 		W = tf.Variable(tf.truncated_normal([num_hidden,
-		                                     num_classes],
-		                                    stddev=0.1))
+																				 num_classes],
+																				stddev=0.1))
 		# Zero initialization
 		# Tip: Is tf.zeros_initializer the same?
 		b = tf.Variable(tf.constant(0., shape=[num_classes]))
@@ -1213,7 +1213,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 				raise ValueError
 			
 			cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=self.get_input('keep_output_rate'))
-#  			cells = tf.nn.rnn_cell.MultiRNNCell([cells] * self._n_decoder_layers)
+#				cells = tf.nn.rnn_cell.MultiRNNCell([cells] * self._n_decoder_layers)
 			original_decoder_cell = cells
 
 			with tf.variable_scope('beam_inputs'):
@@ -1224,7 +1224,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 					tiled_encoder_final_state_c = tile_batch(encoder_final_state.c, beam_width)
 					tiled_encoder_final_state_h = tile_batch(encoder_final_state.h, beam_width)
 					tiled_encoder_final_state = LSTMStateTuple(tiled_encoder_final_state_c,
-															   tiled_encoder_final_state_h)
+																 tiled_encoder_final_state_h)
 				else:
 					tiled_encoder_final_state = tile_batch(encoder_final_state, beam_width)
 
@@ -1387,7 +1387,7 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 			raise ValueError
 		
 		cells = tf.nn.rnn_cell.DropoutWrapper(cell=cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
-		cells  = tf.nn.rnn_cell.MultiRNNCell([cells] * n_encoder_layers)
+		cells	= tf.nn.rnn_cell.MultiRNNCell([cells] * n_encoder_layers)
 		return cells
 	
 	def _create_biRNNLayers(self, state_size, keep_output_rate, n_encoder_layers, is_training):
@@ -1412,10 +1412,51 @@ class Seq2SeqAttentionModel(Seq2SeqBase):
 		fw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=fw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
 		bw_cells = tf.nn.rnn_cell.DropoutWrapper(cell=bw_cells, input_keep_prob=1.0, output_keep_prob=keep_output_rate)
 		
-		fw_cells  = tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
-		bw_cells  = tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
+		fw_cells	= tf.nn.rnn_cell.MultiRNNCell([fw_cells] * n_encoder_layers)
+		bw_cells	= tf.nn.rnn_cell.MultiRNNCell([bw_cells] * n_encoder_layers)
 		return fw_cells, bw_cells
+	
+def make_tf_crnn(input_info, model_info):
+	return CRNN(input_info, model_info)
 
+class CRNN(ClassifierBase):
+	def __init__(self, input_info, model_info):
+		super(CRNN, self).__init__(input_info, model_info)
+		self._is_training = input_info['is_training']
+		self._build_graph()
+		
+		
+	def _build_network_output(self):
+		"""Builds a model with convolutional recurrent networks with RNNs
+		Based on the model definition in https://arxiv.org/abs/1703.05390
+		"""
+		if self._is_training:
+			dropout_prob = self.get_input("dropout_prob")
+			
+		cnn_output = self._build_cnn_output(self._model_info["model_size_infos"][0], self._input_info['x_dims'], False)
+		
+
+		flow = tf.reshape(cnn_output, [-1, cnn_output.shape[1] * cnn_output.shape[2], cnn_output.shape[3]])
+
+		num_layers, rnn_type, rnn_direction, unit_n = gen_rnn_layer_info(self._model_info["model_size_infos"][1])
+		cell_fw, cell_bw = create_biRNNLayers(rnn_type, unit_n, num_layers)
+# 		outputs, output_state_fw, output_state_bw = \
+# 			tf.contrib.rnn.stack_bidirectional_dynamic_rnn(cell_fw, cell_bw, flow, 
+# 			dtype=tf.float32)
+			
+		(fw_output, bw_output), (fw_final_state, bw_final_state) = \
+			tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, flow, 
+			dtype=tf.float32)
+			
+		outputs = tf.concat([fw_output, bw_output], 2)
+		flow_dim = outputs.shape[1] * outputs.shape[2]
+		
+		net = tf.reshape(outputs, [-1, flow_dim])
+		label_count = self._input_info['num_cls']
+		
+		logits = slim.fully_connected(net, label_count, activation_fn=None, scope='fc1')
+		predicted_indices = tf.argmax(logits, 1)
+		return logits, predicted_indices
 
 def make_tf_dscnn(input_info, model_info):
 	return DSCNN(input_info, model_info)
@@ -1437,89 +1478,14 @@ class DSCNN(ClassifierBase):
 		self._is_training = input_info['is_training']
 		self._build_graph()
 		
-	def _gen_cnn_layer_info(self, model_size_info):
-		num_layers = model_size_info[0]
-		conv_feat = [None]*num_layers
-		conv_kt = [None]*num_layers
-		conv_kf = [None]*num_layers
-		conv_st = [None]*num_layers
-		conv_sf = [None]*num_layers
-		i=1
-		
-		for layer_no in range(0, num_layers):
-			conv_feat[layer_no] = model_size_info[i]
-			i += 1
-			conv_kt[layer_no] = model_size_info[i]
-			i += 1
-			conv_kf[layer_no] = model_size_info[i]
-			i += 1
-			conv_st[layer_no] = model_size_info[i]
-			i += 1
-			conv_sf[layer_no] = model_size_info[i]
-			i += 1
-		return num_layers, conv_feat, conv_kt, conv_kf, conv_st, conv_sf
-	
-	def _gen_dscnn_structure(self, sub_id):
-		
-		model_size_info = self._model_info["model_size_infos"][sub_id]
-		num_layers, conv_feat, conv_kt, conv_kf, conv_st, conv_sf = self._gen_cnn_layer_info(model_size_info)
-		x_dim = self._input_info['x_dims'][sub_id]
-		t_dim = x_dim[0]
-		f_dim = x_dim[1]
-		input_shape = tf.reshape(self.get_input(ClassifierBase.get_x_name(sub_id)),
-									[-1, x_dim[0], x_dim[1], 1])
-		with tf.variable_scope('DS-CNN{}'.format(sub_id)) as sc:
-			end_points_collection = sc.name + '_end_points'
-			with slim.arg_scope([slim.convolution2d,
-								 slim.separable_convolution2d],
-								activation_fn=None,
-								weights_initializer=slim.initializers.xavier_initializer(),
-								biases_initializer=slim.init_ops.zeros_initializer(),
-								outputs_collections=[end_points_collection]):
-				with slim.arg_scope([slim.batch_norm],
-									is_training=self._is_training,
-									decay=0.96,
-									updates_collections=None,
-									activation_fn=tf.nn.relu):
-					for layer_no in range(num_layers):
-						if layer_no==0:
-							net = slim.convolution2d(input_shape, conv_feat[layer_no],\
-												[conv_kt[layer_no], conv_kf[layer_no]], stride=[conv_st[layer_no], conv_sf[layer_no]], padding='SAME', scope='conv_1')
-							net = slim.batch_norm(net, scope='conv/batch_norm')
-						else:
-							net = depthwise_separable_conv2(net, conv_feat[layer_no], 
-												kernel_size = [conv_kt[layer_no],conv_kf[layer_no]], 
-												stride = [conv_st[layer_no],conv_sf[layer_no]], 
-												w_scale_l1=0,
-												w_scale_l2=0,
-												b_scale_l1=0,
-												b_scale_l2=0,
-												sc='conv_ds_{}'.format(layer_no)
-												)
-	
-
-						t_dim = math.ceil(t_dim/float(conv_st[layer_no]))
-						f_dim = math.ceil(f_dim/float(conv_sf[layer_no]))
-
-					net = slim.avg_pool2d(net, [t_dim, f_dim], scope='avg_pool')
-				net = tf.squeeze(net, [1, 2], name='SpatialSqueeze')
-		return net
 		
 	def _build_network_output(self):
-	
-		label_count = self._input_info['num_cls']
 
-		#Extract model dimensions from model_size_info
-		subnet_num = len(self._model_info["model_size_infos"])
-		outs = []
-		for id in range(subnet_num):
-# 		scope = 'DS-CNN'
-			net = self._gen_dscnn_structure(id)
-			net = tf.layers.flatten(net)
-			outs.append(net)
-		net = tf.concat(outs, axis=-1)
+		net = self._build_cnn_output(self._model_info["model_size_infos"], self._input_info['x_dims'])
 		
-#  		net = slim.fully_connected(net, label_count * 2, activation_fn=tf.nn.sigmoid, scope='fc01')
+		label_count = self._input_info['num_cls']
+		
+#			net = slim.fully_connected(net, label_count * 2, activation_fn=tf.nn.sigmoid, scope='fc01')
 # 			net = slim.fully_connected(net, label_count * 30, activation_fn=tf.nn.relu, scope='fc02')
 		logits = slim.fully_connected(net, label_count, activation_fn=None, scope='fc1')
 		predicted_indices = tf.argmax(logits, 1)
