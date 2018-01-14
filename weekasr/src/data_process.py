@@ -813,6 +813,16 @@ def make_file_trim(type="npz", *args):
 
 def get_data_from_files(root_path, down_rate, feature_names=[], label_names=[], input_num=0, pad_id=0):
 	
+	def extract_name_and_code(name_str):
+		index = name_str.find('[')
+		name = name_str
+		code = None
+		if index > -1:
+			name = name_str[:index]
+			code = name_str[index + 1:-1]
+		return name, code
+	
+	
 	sampling_rate = int(cfg.sampling_rate * down_rate)
 	trim = get_file_trim(filter_trim = str(sampling_rate))
 	print "process file type:" + trim
@@ -824,8 +834,16 @@ def get_data_from_files(root_path, down_rate, feature_names=[], label_names=[], 
 		data = np.load(path)
 # 		data = data['arr_0']
 		for name in feature_names:
+			
+			name, code = extract_name_and_code(name)
 			name = "x_" + name
 			item = data[name]
+			
+			#slice an re-select feature data
+			if code is not None:
+				temp = {'item':item}
+				exec('item=item[:,{}]'.format(code)) in temp
+				item = temp['item']
 			if name in data_dict:
 				data_dict[name].append(item)
 			else:
@@ -846,10 +864,14 @@ def get_data_from_files(root_path, down_rate, feature_names=[], label_names=[], 
 	
 	ret = ()
 	if input_num > 0:
-		for name in feature_names:ret += (data_dict["x_" + name][:input_num], )
+		for name in feature_names:
+			name, _ = extract_name_and_code(name)
+			ret += (data_dict["x_" + name][:input_num], )
 		for name in label_names:ret += (data_dict["y_" + name][:input_num], )
 	else:
-		for name in feature_names:ret += (data_dict["x_" + name], )
+		for name in feature_names:
+			name, _ = extract_name_and_code(name)
+			ret += (data_dict["x_" + name], )
 		for name in label_names:ret += (data_dict["y_" + name], )
 
 		
@@ -1674,6 +1696,23 @@ def compare_train_and_test_data(outdir='../data/train/ext35/'):
 				shutil.copy2(fname_t, new_name)
 				print "copy file {}:{} --> {}".format(cnt, fname_t, new_name)
 				
+def move_duplication(src_path, com_path, dst_path):
+	paths = gen_input_paths(src_path, file_ext_name=".wav")
+	name_dict = {}
+	for fname in paths:
+		label, id = find_label_and_id(fname)
+		name_dict[id] = label
+	cnt = 0
+	paths = gen_input_paths(com_path, file_ext_name=".wav")
+	for fname in paths:
+		label_truth, id = find_label_and_id(fname)
+		if id in name_dict:
+			orig_name = src_path + id + '-' + name_dict[id] + '.wav'
+			dst_name = dst_path + id + '-' + label_truth + '.wav'
+			cnt += 1
+			shutil.move(orig_name, dst_name)
+			print "move file {}:{} --> {}".format(cnt, orig_name, dst_name)
+	
 def copy_error_files(df_pre, outdir='../data/train/ext33/'):
 # 	df_wrong = df_pre[df_pre['plabel'] != df_pre['truth']]
 	cnt = 0
@@ -1731,6 +1770,27 @@ def test():
 							2.features will be concatenated along with the last dimension, 
 								thus, they must have the same shape except the last dimension.
 							3.mfcc10:(Time, 10);logfbank:(Time, 26), so (mfcc10, logfbank):(Time, 36)
+	Feature slice and selection:
+	when you call get_data_from_files to load features, 
+	you could use feature name like below to slice or re-select input features, just the same as numpy array.
+	feat1=np.array([[ 1,  2,  3],
+       				[ 4,  5,  6],
+      				[ 7,  8,  9],
+       				[12,  1,  2]])
+       
+	feat1[:,:2]=[[ 1,  2],
+       			[ 4,  5],
+      			[ 7,  8],
+       			[12,  1]]
+       			
+	feat1[:,[0,2]]=[[ 1, 3],
+       				[ 4, 6],
+      				[ 7, 9],
+       				[12, 2]]		
+	*note:now,we only support slice along feature dimensions, i.e. we cannot slice load data set itemself to change the load items' number.
+	for example, we have a set of feat1 for 1000 items, that is, the original load data shape is 1000*4*3. aforementioned feat1, we can slice it
+	to 1000*4*2 with slice code '[:,:2]' .however, we cannot use '[:100,:,:2]' to change the input number to 100. if you want to realize this function,
+	please use parameter 'input_num' of function 'get_data_from_files'.
 	
 	Feature extracting:
 	training data set:call function gen_train_feature
@@ -1761,8 +1821,9 @@ def test():
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
+# 	move_duplication(src_path='../data/train/ext2/', com_path='../data/train/ext4/', dst_path='../data/train/ext34/')
 # 	compare_train_and_test_data()
-# 	copy_duplicated_files(src_path='../data/train/ext2/', dst_path='../data/train/ext4/', is_copy=False)
+	copy_duplicated_files(src_path='../data/train/ext2/', dst_path='../data/train/ext35/', is_copy=False)
 # 	compare_and_move(truth_path='../data/train/ext2/', src_path='../data/train/ext4/', dst_path='../data/train/ext34/', is_copy=False)
 # 	copy_special_labels(dirs = [('../data/train/ext1/','../data/train/ext31/')], include_labels=[cfg.sil_flg])
 # 	add_word_label("../data/train/ext1/", cfg.sil_flg_str)
