@@ -49,9 +49,9 @@ class Config(object):
 	dict_vocabs = {}
 	
 	down_rate = 1.0
-	feat_names = ['rawwav', "mfcc40s", "logspecgram-8000", 'zcr']
-# 	feat_names = ["logspecgram-8000"]
-	feat_names = ["logspecgram-8000"]
+	feat_names = ['integration', "logspecgram-8000", 'rawwav']
+	feat_names = ["logspecgram-8000", 'integration[:,[0,2,5]]']
+# 	feat_names = ["integration[:,0]"]
 	label_names = ['large', 'fname']
 	label_test = ['name']
 	'''
@@ -67,14 +67,17 @@ class Config(object):
 	dscnn_model_size_mfcc_s = [7, 1, 150, 10, 4, 2, 1, 2, 150, 3, 3, 2, 2, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 2, 150, 3, 3, 1, 1, 3, 0, 3, 3, 2, 2]
 	dscnn_model_size_mfcc_l = [7, 1, 150, 10, 4, 2, 1, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 512, 3, 3, 1, 1, 2, 512, 3, 3, 1, 1, 3, 0, 3, 3, 2, 2]
 	dscnn_model_size_foldwav = [3, 1, 128, 40, 4, 20, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1]
-	dscnn_model_size_wav = [4, 1, 8, 40, 1, 20, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1, 3, 0, 3, 3, 2, 2]
-	dscnn_model_size_zcr = [4, 1, 128, 10, 1, 4, 1, 2, 128, 3, 3, 1, 1, 2, 128, 4, 3, 1, 1]
+	dscnn_model_size_wav = [7, 1, 276, 40, 1, 20, 1, 2, 276, 4, 3, 1, 1, 2, 276, 4, 3, 1, 1, 2, 276, 4, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_wav_s = [5, 1, 80, 40, 1, 20, 1, 1, 80, 4, 3, 4, 1, 1, 150, 4, 3, 2, 1, 2, 150, 4, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_zcr = [6, 1, 128, 10, 1, 4, 1, 2, 128, 3, 3, 1, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1, 2, 128, 4, 3, 1, 1, 4, 0, 3, 3, 1, 1]
 	dscnn_model_size_logspecgram_8000 = [7, 1, 276, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
-	dscnn_model_size_logspecgram_8000_s = [7, 1, 128, 10, 8, 2, 2, 2, 128, 3, 3, 2, 2, 2, 128, 3, 3, 2, 2, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_logspecgram_8000_s = [7, 1, 176, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 2, 176, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
 	dscnn_model_size_logspecgram_8000_l = [7, 1, 276, 10, 8, 2, 2, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
-	dscnn_model_size_logspecgram_8000_d = [9, 1, 276, 10, 8, 2, 2, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_logspecgram_8000_d = [10, 1, 276, 10, 8, 2, 2, 2, 276, 3, 3, 2, 2, 2, 276, 3, 3, 2, 2, 4, 0, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 2, 276, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
 	dscnn_model_size_logspecgram_16000 = [4, 1, 176, 10, 16, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1]
-	dscnn_model_size_en = [dscnn_model_size_wav, dscnn_model_size_mfcc_s, dscnn_model_size_logspecgram_8000, dscnn_model_size_zcr]
+	dscnn_model_size_integration = [7, 1, 128, 4, 1, 2, 1, 2, 128, 3, 3, 2, 2, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
+	dscnn_model_size_ssc = dscnn_model_size_mfcc_s
+	dscnn_model_size_en = [dscnn_model_size_logspecgram_8000_l, dscnn_model_size_integration]
 	
 	cnn_model_size_logspecgram_8000 = [4, 1, 276, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
 	cnn_model_size_mfcc_s = [3, 1, 150, 10, 4, 2, 1, 1, 150, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
