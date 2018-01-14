@@ -25,7 +25,7 @@ from scipy.fftpack import fft
 from scipy.io import wavfile
 import wave
 from scipy import signal
-from python_speech_features import mfcc, logfbank, fbank, delta
+from python_speech_features import mfcc, logfbank, fbank, delta, ssc
 from keras.preprocessing import sequence
 import audioop
 import tensorflow as tf
@@ -33,6 +33,7 @@ from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from vad import VoiceActivityDetector
 from base.data_util import gen_input_paths
 import math
+from library import audioFeatureExtraction
 # import pylab as pl
 import datetime, time
 cfg.init()
@@ -104,7 +105,7 @@ def standardization(X):
 # 	x_t = preprocessing.scale(X, axis=0, with_mean=True, with_std=True, copy=True)
 	mean = np.mean(X, axis=0)
 	std = np.std(X, axis=0)
-	
+	std = std + 1e-12
 	x_t = (X - mean) / std
 	
 	
@@ -347,6 +348,9 @@ def logfbank40(x, sampling_rate, **arg):
 def logfbank80(x, sampling_rate, **arg):
 	return logfbank(x, sampling_rate, nfilt=80, lowfreq=300, highfreq=3000)
 
+def ssc40(x, sampling_rate, **arg):
+	return ssc(x, sampling_rate, nfilt=40)
+
 def rawwav(x, sample_rate, **arg):
 	
 	return x
@@ -543,6 +547,15 @@ def TECCs(x, sample_rate, **arg):
 
 def foldwav(x, sample_rate, **arg):
 	return np.reshape(x, (-1, 1600))
+
+
+def integration(x, sample_rate, **arg):
+	'''
+	integration 34 dimension, including zcr, Energy, Entropy of Energy, Spectral Centroid, MFCCs, and so on.
+	see:https://github.com/tyiannak/pyAudioAnalysis/wiki/3.-Feature-Extraction
+	'''
+	feats = audioFeatureExtraction.stFeatureExtraction(x, sample_rate, 0.025*sample_rate, 0.01*sample_rate);
+	return feats.T
 
 def get_features(data, name, sampling_rate, **arg):
 	names = []
@@ -1742,14 +1755,15 @@ def test():
 
 # 	func = logfbank
 # 	print make_file_name("../data/train/train", "npz", 16000, "logspecgram")
-	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s', 'zcr']
+	feat_names = ["rawwav", "logspecgram-8000", 'mfcc40s', 'zcr', 'ssc40', 'integration']
+# 	feat_names = ['integration']
 	label_names = ['simple', 'word', 'large', 'fname', 'name']
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
 # 	compare_train_and_test_data()
-# 	copy_duplicated_files(src_path='../data/train/ext32/', dst_path='../data/train/ext34/', is_copy=False)
-# 	compare_and_move(truth_path='../data/train/ext2/', src_path='../data/train/ext32/', dst_path='../data/train/ext34/', is_copy=False)
+# 	copy_duplicated_files(src_path='../data/train/ext2/', dst_path='../data/train/ext4/', is_copy=False)
+# 	compare_and_move(truth_path='../data/train/ext2/', src_path='../data/train/ext4/', dst_path='../data/train/ext34/', is_copy=False)
 # 	copy_special_labels(dirs = [('../data/train/ext1/','../data/train/ext31/')], include_labels=[cfg.sil_flg])
 # 	add_word_label("../data/train/ext1/", cfg.sil_flg_str)
 	
@@ -1826,11 +1840,11 @@ def test():
 	
 # 	add_word_label('../data/train/ext7/', cfg.unk_flg_str, ".wav", False)
 # 	copy_files_accord_date('../data/train/ext30/', '../data/train/ext33/')
-	copy_and_remane(output_num=0, start_index=0, threshold=0.0, 
-				name_dict_path='../sub/prediction_tf_dscnn_ml_all3_91152_86.csv',
-				extract_labels=["white"],
-# 				extract_labels=(cfg.voc_large.wordset() - cfg.voc_word.wordset() - set(['follow', 'backward', 'visual', 'learn', 'withone', 'forward'])), 
-				target_dir='../data/train/ext31/')
+# 	copy_and_remane(output_num=0, start_index=0, threshold=0.0, 
+# 				name_dict_path='../sub/prediction_tf_dscnn_ml_all3_91152_86.csv',
+# 				extract_labels=["white"],
+# # 				extract_labels=(cfg.voc_large.wordset() - cfg.voc_word.wordset() - set(['follow', 'backward', 'visual', 'learn', 'withone', 'forward'])), 
+# 				target_dir='../data/train/ext31/')
 # # 	copy_and_remane(output_num=0, start_index=0, threshold=0.94, extract_labels=['happy'], 
 # # 				name_dict_path='../sub/prediction_tf_dscnn_ml_all4_85606.csv', target_dir='../data/train/ext31/')
 # # 	copy_and_remane(output_num=200, extract_labels=['off'], target_dir='../data/train/ext33/')
@@ -1841,7 +1855,7 @@ def test():
 # # 	copy_suspect_data()
 # 	count_label_info('../data/train/ext2/', '../data/train/ext2.csv')
 # 	count_label_info('../data/train/ext30/', '../data/train/ext30.csv')
-	count_label_info('../data/train/ext32/', '../data/train/ext32.csv')
+# 	count_label_info('../data/train/ext32/', '../data/train/ext32.csv')
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
 # 	gen_feature('../data/outlier/no/', "../data/no_outlier", ['logspecgram-8000'], ['simple'], is_aggregated, is_normalization, default_label=cfg.unk_flg)
@@ -1863,15 +1877,15 @@ def test():
 # 	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
 # 	gen_test_feature(feat_names, is_aggregated, is_normalization, down_rate)
 # 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg, outdir="../data/train/Temp/")
+# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/train/Temp/")
 # 	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
-# 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
 # 	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(6, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(7, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(8, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
-# 	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(10, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/train/Temp/")
 # 	gen_ext_feature(9, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(11, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(12, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
@@ -1886,7 +1900,7 @@ def test():
 # 	gen_ext_feature(29, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'down')
 # 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(31, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'right')
-# 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+# 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/train/Temp/")
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(34, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
 # 	for i in range(15, 17):
