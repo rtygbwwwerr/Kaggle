@@ -1473,11 +1473,19 @@ def copy_and_remane(output_num=0, start_index=0, threshold=0.0,
 				name_dict_path='../sub/prediction_tf_dscnn_ml_all4_88727_85.csv', 
 				orig_dir='../data/test/audio/', 
 				target_dir='../data/train/ext22/', 
+				exclude_dir=[],
+				exclude_labes=None,
 				extract_labels=None):
 	if not os.path.exists(target_dir):
 		print "created dir:" + target_dir
 		os.mkdir(target_dir)
 
+	exclude_id_set = set([])
+	for dir in exclude_dir:
+		paths = gen_input_paths(dir, file_ext_name=".wav")
+		for fname in paths:
+			_, id = find_label_and_id(fname)
+			exclude_id_set.add(id)
 	df = pd.read_csv(name_dict_path)
 	name_dict = {}
 	for i in range(len(df)):
@@ -1489,11 +1497,17 @@ def copy_and_remane(output_num=0, start_index=0, threshold=0.0,
 	
 	paths = paths[start_index:]
 	for path in paths:
+		_, id = find_label_and_id(path)
 		name = os.path.basename(path)
 		label = name_dict.get(name, None)
+		if id in exclude_id_set:
+# 			print "skip duplicated item:" + name
+			continue
 		if label is None:
 			continue
 		if extract_labels is not None and label not in extract_labels:
+			continue
+		if exclude_labes is not None and label in exclude_labes:
 			continue
 		dst_name = make_new_name(path, target_dir, label)
 		shutil.copy(path, dst_name)
@@ -1729,8 +1743,12 @@ def copy_error_files(df_pre, outdir='../data/train/ext33/'):
 			new_fname = '{}{}-{}-{}.wav'.format(outdir, name, label_to_str(plabel), label_to_str(truth))
 			shutil.copy(fname, new_fname)
 			print "copy wrong data {}: {} --> {}".format(cnt, fname, new_fname)
-			
+
+def proofread_labels(df_ret, truth_path):
+	
+		
 def test():
+	
 	'''
 	label name: corresponding to 'truth Y'
 	options:['simple', 'word', 'large', 'word_seq', 'char_seq', 'name', 'fname']
@@ -1821,10 +1839,10 @@ def test():
 	is_normalization = True
 	is_aggregated = True
 	down_rate=cfg.down_rate
-# 	move_duplication(src_path='../data/train/ext2/', com_path='../data/train/ext4/', dst_path='../data/train/ext34/')
+# 	move_duplication(src_path='../data/train/ext31/', com_path='../data/train/ext32/', dst_path='../data/train/ext35/')
 # 	compare_train_and_test_data()
-	copy_duplicated_files(src_path='../data/train/ext2/', dst_path='../data/train/ext35/', is_copy=False)
-# 	compare_and_move(truth_path='../data/train/ext2/', src_path='../data/train/ext4/', dst_path='../data/train/ext34/', is_copy=False)
+# 	copy_duplicated_files(src_path='../data/train/ext30/', dst_path='../data/train/ext33/', is_copy=False)
+# 	compare_and_move(truth_path='../data/train/ext32/', src_path='../data/train/ext31/', dst_path='../data/train/ext33/', is_copy=False)
 # 	copy_special_labels(dirs = [('../data/train/ext1/','../data/train/ext31/')], include_labels=[cfg.sil_flg])
 # 	add_word_label("../data/train/ext1/", cfg.sil_flg_str)
 	
@@ -1914,8 +1932,9 @@ def test():
 # # 	copy_and_remane(output_num=200, extract_labels=['stop'], target_dir='../data/train/ext33/')
 # # 	copy_and_remane(output_num=100, start_index=70000, extract_labels=[cfg.unk_flg], target_dir='../data/train/ext28/')
 # # 	copy_suspect_data()
-# 	count_label_info('../data/train/ext2/', '../data/train/ext2.csv')
-# 	count_label_info('../data/train/ext30/', '../data/train/ext30.csv')
+	count_label_info('../data/train/ext4/', '../data/train/ext4.csv')
+	count_label_info('../data/train/ext5/', '../data/train/ext5.csv')
+	count_label_info('../data/train/ext30/', '../data/train/ext30.csv')
 # 	count_label_info('../data/train/ext32/', '../data/train/ext32.csv')
 # 	detect_training_data(cfg.POSSIBLE_LABELS)
 # 	detect_signal_word('no', n_components=2, contamination=0.01)
@@ -1938,8 +1957,8 @@ def test():
 # 	gen_train_feature(feat_names, label_names, is_aggregated, is_normalization, down_rate)
 # 	gen_test_feature(feat_names, is_aggregated, is_normalization, down_rate)
 # 	gen_ext_feature(0, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
-# 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg, outdir="../data/train/Temp/")
-# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/train/Temp/")
+# 	gen_ext_feature(1, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.sil_flg)
+# 	gen_ext_feature(2, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(3, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(4, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/valid/")
 # 	gen_ext_feature(5, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
@@ -1959,7 +1978,7 @@ def test():
 # 	gen_ext_feature(26, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(27, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(29, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'down')
-# 	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
+	gen_ext_feature(30, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
 # 	gen_ext_feature(31, feat_names, label_names, is_aggregated, is_normalization, down_rate, 'right')
 # 	gen_ext_feature(32, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg, outdir="../data/train/Temp/")
 # 	gen_ext_feature(33, feat_names, label_names, is_aggregated, is_normalization, down_rate, cfg.unk_flg)
