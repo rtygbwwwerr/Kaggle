@@ -232,7 +232,7 @@ def run_valid(vocab, file_head, model_prefix, model_func, data_gen_func=model_ut
 	
 	df_pre.to_csv(file, index=False)
 	print "Test stack_training:%d, file:%s"%(len(fnames), file)
-	data_process.copy_error_files(df_pre)
+# 	data_process.copy_error_files(df_pre)
 	
 
 		
@@ -1127,9 +1127,11 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 # 	print len(data_train)
 	data_valid = data_process.get_data_from_files("../data/valid/", cfg.down_rate, cfg.feat_names, cfg.label_names, input_num)
 # 	data_list = train_test_split(*data_train, test_size=batch_size*10, random_state=0)
-	train_x_list = data_train[0:-2]
-	print len(train_x_list)
-	valid_x_list = data_valid[0:-2]
+# 	train_x_list = list(data_train[0:-2])
+# 	train_x_list[0] = train_x_list[0][:,0:8]
+# 	print len(train_x_list)
+# 	valid_x_list = list(data_valid[0:-2])
+# 	valid_x_list[0] = valid_x_list[0][:,0:8]
 	y_train = data_train[-2]
 	y_valid = data_valid[-2]
 	fid_train = data_train[-1]
@@ -1184,7 +1186,7 @@ def experiment_tf_classifier(vocab, data_gen_func, train_func=train_tf_classifie
 		train_x_list.append(x_train)
 		valid_x_list.append(x_vaild)
 		input_info['x_dims'].append(x_train[0].shape)
-		print "input feature{} shape:{}".format(i, x_train[0].shape)	
+		print "input feature {} shape:{}".format(i, x_train[0].shape)	
 		
 	print "train items num:{0}, valid items num:{1}".format(y_train.shape[0], y_valid.shape[0])
 	
@@ -1424,9 +1426,67 @@ def data_analysis(x_train, y_train, x_valid, y_valid):
 	eq_rate = cnt_all / float(x_valid.shape[0])
 	print "annlysis result: eqx_rate:{}, eq_rate:{}".format(eqx_rate, eq_rate)
 
-def result_analysis(sub_file="../data/ds_submission.csv"):
-	df_ret = pd.read_csv(sub_file)
+def result_analysis(valid_file="../data/ds_submission.csv", pred_file='', outdir='../data/train/ext31/', 
+				    exclude_dir=['../data/train/ext1/', '../data/train/ext2/', '../data/train/ext4/', '../data/train/ext5/', '../data/train/ext30/'],
+				    included_labels = None,
+				    prec_threshold=1.0):
+	df_ret = pd.read_csv(valid_file)
 	print df_ret['label'].value_counts().sort_values()
+	
+	df_pre = pd.read_csv(pred_file)
+	print df_pre['label'].value_counts().sort_values()
+	
+	dict_prec = {}
+	dict_threshold = {}
+	precs = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0]
+# 	buckets = [None] * len(precs)
+	if 'truth' in df_ret.columns.tolist():
+		for i in range(len(df_ret)):
+			plabel = df_ret.at[i, 'plabel']
+			truth = df_ret.at[i, 'truth']
+			label = plabel if plabel in cfg.voc_small.wordset() else cfg.unk_flg
+			confidence = df_ret.at[i, label]
+			if plabel not in dict_prec:
+				dict_prec[plabel] =  [[0 for col in range(2)] for row in range(len(precs))]
+			for j in range(len(precs)):
+				if confidence >= precs[j]: 
+					dict_prec[plabel][j][1] =  dict_prec[plabel][j][1] + 1
+					if plabel == truth:
+						dict_prec[plabel][j][0] =  dict_prec[plabel][j][0] + 1
+						
+	print precs
+	for label, cnts in dict_prec.iteritems():
+		min_prec = "None"
+		num_item = 0
+		for i in range(len(cnts)):
+			if cnts[i][1] == 0:
+				cnts[i][0] = 0.0
+				cnts[i][1] = 0
+			else:
+				num_item = cnts[i][0]
+				cnts[i][0] = cnts[i][0] / float(cnts[i][1])
+				cnts[i][1] = num_item
+			if cnts[i][0] >= prec_threshold and min_prec == 'None':
+				min_prec = precs[i]
+				dict_threshold[label] = min_prec
+				
+		print "{}-{}, min threshold:{}".format(label, cnts, min_prec)
+	print "there {} labels need to copy.".format(len(dict_threshold))
+	print dict_threshold
+	for label, t in dict_threshold.iteritems():
+		if included_labels is not None and label not in included_labels:
+			continue
+		print "label {}-{}".format(label, t)
+# 		target_dir = outdir + label + '/'
+		target_dir = outdir
+# 		data_process.make_if_not_exist(target_dir)
+		data_process.copy_and_remane(output_num=150, start_index=0, threshold=t, 
+					name_dict_path=pred_file,
+					extract_labels=[label],
+					exclude_dir=exclude_dir,
+# 	 				exclude_labes=(cfg.voc_large.wordset() - cfg.voc_small.wordset()), 
+					target_dir=target_dir)
+		
 	
 # 	flags = np.sum(flags, axis=1, dtype=np.int32)
 # 	
@@ -1506,21 +1566,30 @@ if __name__ == "__main__":
 # 					batch_size=256, nb_epoch=300, input_num=0, 
 # 					file_head="tf_att_seq2seq", 
 # 					file_type=ftype, pre_train_model_prefix=None, is_debug=False)
-	file_head = "tf_dsnn_l"
+	file_head = "tf_dsnn_en_d5_1"
 	max_acc_str = None
 	model_pre = None
 	vocab = cfg.voc_large
-	model_size_info=[cfg.dscnn_model_size_logspecgram_8000_l]
+# 	model_size_info=[cfg.dscnn_model_size_integration]
+	model_size_info=cfg.dscnn_model_size_en
+	file_head = file_head + "_{}".format(len(model_size_info))
 # 	experiment_keras_outlier()
 # 	run_outlier_detector('../data/train/audio/no/', '../checkpoints/keras_outlier_no_weights.26-0.0015-0.9998-0.0110-1.0000.hdf5')
 # 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
 	experiment_tf_classifier(vocab, model_util.gen_tf_classify_data, train_func=train_tf_classifier, model_func=model_maker_tf.make_tf_dscnn, 
-					batch_size=256, nb_epoch=50, input_num=0, model_size_info=model_size_info,
+					batch_size=256, nb_epoch=25, input_num=0, model_size_info=model_size_info,
 					file_head=file_head, pre_train_model_prefix=model_pre, is_debug=False)
 # 	model_util.plot_epoch("../checkpoints/{}_{}_epoch.txt".format(file_head, cfg.feat_names[0]), "../checkpoints/epoch_no_outlier_3.jpg")
-	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
-	file_head = file_head + "_" + max_acc_str 	
-	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, model_size_info=model_size_info, batch_size=256)
+# 	model_pre, max_acc_str = find_best_model_file_pre("../checkpoints/tf/", file_head)
+# 	file_head = file_head + "_" + max_acc_str 	
+# 	run_valid(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, input_size=0, model_size_info=model_size_info, batch_size=256)
+# 	result_analysis("../eval/stack_training_tf_dsnn_en_d5_1_4_92829.csv", '../sub/prediction_tf_dsnn_en_d5_1_4_92829.csv', 
+# # 				included_labels=['no', 'on', 'go', 'up', 'right', 'left', 'stop', 'down', 'off'],
+# # 				included_labels=['downward','hello'],
+# 				prec_threshold=0.98)
+# 	run_submission_cls_tf(vocab, file_head, model_pre, model_maker_tf.make_tf_dscnn, data_gen_func=model_util.gen_tf_classify_test_data, 
+# 						input_size=0, model_size_info=model_size_info,
+# 						batch_size=256)
 
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_l_mfcc40s_epoch.txt", "../checkpoints/epoch_en_l.jpg")
 # 	model_util.plot_epoch("../checkpoints/tf_dscnn_en_w_mfcc40s_epoch.txt", "../checkpoints/epoch_en_w.jpg")
