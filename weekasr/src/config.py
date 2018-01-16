@@ -49,8 +49,8 @@ class Config(object):
 	dict_vocabs = {}
 	
 	down_rate = 1.0
-	feat_names = ['integration', "logspecgram-8000", 'rawwav']
-	feat_names = ["logspecgram-8000", 'integration[:,[0,2,5]]']
+# 	feat_names = ['integration', "logspecgram-8000", 'rawwav']
+	feat_names = ['ssc40', "logspecgram-8000", 'integration[:,0]', 'integration[:,5]']
 # 	feat_names = ["integration[:,0]"]
 	label_names = ['large', 'fname']
 	label_test = ['name']
@@ -77,7 +77,9 @@ class Config(object):
 	dscnn_model_size_logspecgram_16000 = [4, 1, 176, 10, 16, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 1, 1]
 	dscnn_model_size_integration = [7, 1, 128, 4, 1, 2, 1, 2, 128, 3, 3, 2, 2, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 2, 128, 3, 3, 1, 1, 4, 0, 3, 3, 2, 2]
 	dscnn_model_size_ssc = dscnn_model_size_mfcc_s
-	dscnn_model_size_en = [dscnn_model_size_logspecgram_8000_l, dscnn_model_size_integration]
+	dscnn_model_size_ee = dscnn_model_size_zcr
+	dscnn_model_size_se = dscnn_model_size_zcr
+	dscnn_model_size_en = [dscnn_model_size_ssc, dscnn_model_size_logspecgram_8000_l, dscnn_model_size_zcr, dscnn_model_size_se]
 	
 	cnn_model_size_logspecgram_8000 = [4, 1, 276, 10, 8, 2, 2, 2, 176, 3, 3, 2, 2, 2, 176, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
 	cnn_model_size_mfcc_s = [3, 1, 150, 10, 4, 2, 1, 1, 150, 3, 3, 2, 2, 4, 0, 3, 3, 2, 2]
